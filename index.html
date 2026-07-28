@@ -2,8 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!--
+        Pinch-to-zoom is intentionally left enabled (no maximum-scale, no
+        user-scalable=no). Disabling it would block low-vision users from
+        zooming in, which fails WCAG 1.4.4 (Resize Text). viewport-fit=cover
+        lets the app draw edge-to-edge on notched devices when installed, in
+        combination with the safe-area-inset padding in style.css.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>CardSwap NZ - Buy & Sell Gift Cards</title>
+    <meta name="description" content="New Zealand's trusted marketplace for buying and selling discounted gift cards. Save up to 25% on your favourite NZ brands.">
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1a237e">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+
+    <!-- iOS install support (iOS does not read manifest.json for these) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CardSwap NZ">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -37,6 +60,16 @@
             </div>
         </div>
     </nav>
+
+    <!-- Offline status banner (toggled by app.js via navigator.onLine) -->
+    <div class="offline-banner hidden" id="offlineBanner" role="status" aria-live="polite">
+        You're offline. Some features won't work until your connection is back.
+    </div>
+
+    <!-- PWA install prompt (toggled by app.js on the beforeinstallprompt event) -->
+    <button type="button" class="install-btn hidden" id="installBtn" onclick="promptInstall()" aria-label="Install CardSwap NZ app">
+        <span aria-hidden="true">📲</span> Install App
+    </button>
 
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
@@ -717,9 +750,9 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="env-config.js"></script>
-    <script src="supabase-client.js"></script>
-    <script src="app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="env-config.js" defer></script>
+    <script src="supabase-client.js" defer></script>
+    <script src="app.js" defer></script>
 </body>
 </html>
