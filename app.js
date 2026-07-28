@@ -18,6 +18,7 @@ const PAGE_SECTION_MAP = {
     login: 'login-section',
     signup: 'signup-section',
     'forgot-password': 'forgot-password-section',
+    'reset-password': 'reset-password-section',
     orders: 'my-orders-section',
     'seller-dashboard': 'seller-dashboard-section',
     sell: 'sell-section',
@@ -271,6 +272,11 @@ async function checkAuth() {
 }
 
 async function handleAuthStateChange(event, session) {
+    if (event === 'PASSWORD_RECOVERY') {
+        router('reset-password', { historyMode: 'replace' });
+        return;
+    }
+
     if (event === 'SIGNED_OUT') {
         AppState.currentUser = null;
         updateNavForUser();
@@ -416,7 +422,7 @@ async function handleForgot() {
     try {
         await withLoading(async () => {
             const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
-                redirectTo: `${window.location.origin}${window.location.pathname}#login`
+                redirectTo: `${window.location.origin}${window.location.pathname}`
             });
 
             if (error) throw error;
@@ -426,6 +432,48 @@ async function handleForgot() {
         router('login');
     } catch (error) {
         showError(error, 'Unable to request a reset link.');
+    }
+}
+
+async function handleResetPassword() {
+    document.getElementById('resetPasswordError').textContent = '';
+    document.getElementById('resetPasswordConfirmError').textContent = '';
+
+    const password = document.getElementById('resetPassword').value;
+    const confirm = document.getElementById('resetPasswordConfirm').value;
+
+    let hasError = false;
+
+    if (password.length < 8) {
+        document.getElementById('resetPasswordError').textContent = 'Password must be at least 8 characters';
+        hasError = true;
+    }
+
+    if (password !== confirm) {
+        document.getElementById('resetPasswordConfirmError').textContent = 'Passwords do not match';
+        hasError = true;
+    }
+
+    if (hasError) return;
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.auth.updateUser({ password });
+            if (error) throw error;
+        });
+
+        alert('Your password has been updated. Please log in with your new password.');
+
+        // The recovery session Supabase created to allow this update is not a
+        // normal login session -- sign out so the user lands on a clean login
+        // screen and re-authenticates with the new password.
+        await supabaseClient.auth.signOut();
+        AppState.currentUser = null;
+        updateNavForUser();
+        document.getElementById('resetPasswordForm').reset();
+        router('login', { historyMode: 'replace' });
+    } catch (error) {
+        showError(error, 'Unable to update your password. Please request a new reset link.');
     }
 }
 
@@ -622,11 +670,11 @@ async function viewListing(id, options = {}) {
                         similar.length > 0
                             ? `<div class="detail-section">
                         <h3>Similar Cards</h3>
-                        <div style="display: flex; gap: 12px; overflow-x: auto;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
                             ${similar
                                 .map(
                                     (s) => `
-                                <div style="min-width: 160px; background: var(--gray-50); padding: 12px; border-radius: var(--radius); cursor: pointer;" onclick="viewListing('${s.id}')">
+                                <div style="background: var(--gray-50); padding: 12px; border-radius: var(--radius); cursor: pointer;" onclick="viewListing('${s.id}')">
                                     <div style="font-weight: 700; font-size: 14px;">${escapeHtml(s.brand)}</div>
                                     <div style="color: var(--green); font-weight: 700;">${formatCurrency(s.salePrice)}</div>
                                     <div style="font-size: 12px; color: var(--gray-500);">Save ${s.discount}%</div>
@@ -1555,7 +1603,67 @@ function setupEventListeners() {
     });
 }
 
+/* ===== PWA: service worker, install prompt, offline detection =====
+ * All additive -- none of this touches existing auth/listing/order/
+ * dashboard logic above. */
+
+let deferredInstallPrompt = null;
+
+function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch((error) => {
+            console.error('Service worker registration failed:', error);
+        });
+    });
+}
+
+function setupPWAInstall() {
+    const installBtn = document.getElementById('installBtn');
+    if (!installBtn) return;
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+        // Prevent the default mini-infobar and show our own branded button instead.
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        installBtn.classList.remove('hidden');
+    });
+
+    window.addEventListener('appinstalled', () => {
+        deferredInstallPrompt = null;
+        installBtn.classList.add('hidden');
+    });
+}
+
+async function promptInstall() {
+    const installBtn = document.getElementById('installBtn');
+    if (!deferredInstallPrompt) return;
+
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    installBtn?.classList.add('hidden');
+}
+
+function setupOfflineDetection() {
+    const banner = document.getElementById('offlineBanner');
+    if (!banner) return;
+
+    const updateOnlineStatus = () => {
+        banner.classList.toggle('hidden', navigator.onLine);
+    };
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+}
+
 async function initializeApp() {
+    registerServiceWorker();
+    setupPWAInstall();
+    setupOfflineDetection();
+
     if (!window.supabaseClient) {
         const message = 'Supabase client is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.';
         alert(message);
