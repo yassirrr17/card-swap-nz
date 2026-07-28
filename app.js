@@ -1673,6 +1673,16 @@ async function initializeApp() {
 
     setupEventListeners();
     await checkAuth();
+
+    // Password reset links land here with #access_token=...&type=recovery
+    // in the URL. This MUST be checked before initializeRouting() runs,
+    // because that function replaces the URL hash for normal navigation --
+    // which would otherwise erase the recovery token before it can be used.
+    if (window.location.hash.includes('type=recovery')) {
+        router('reset-password', { historyMode: 'replace' });
+        return;
+    }
+
     await initializeRouting();
 }
 
