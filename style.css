@@ -33,6 +33,12 @@
     --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
     --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
     --transition: all 0.2s ease;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --navbar-height: 64px;
+    --tap-target: 44px;
 }
 
 /* ===== RESET & BASE ===== */
@@ -44,6 +50,10 @@
 
 html {
     scroll-behavior: smooth;
+    /* Safety net: nothing should ever be able to create page-level
+       horizontal scroll, even if a future addition forgets to wrap it. */
+    overflow-x: hidden;
+    width: 100%;
 }
 
 body {
@@ -54,6 +64,22 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow-x: hidden;
+    width: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Removes the gray flash on tap on Android/iOS Chrome; buttons/links
+       still get normal :focus and :active styling. */
+    -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 
 a {
@@ -63,6 +89,11 @@ a {
 
 a:hover {
     text-decoration: underline;
+}
+
+:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
 }
 
 /* ===== NAVIGATION ===== */
@@ -75,16 +106,19 @@ a:hover {
     right: 0;
     z-index: 1000;
     box-shadow: var(--shadow-md);
+    padding-top: var(--safe-top);
 }
 
 .nav-container {
     max-width: 1280px;
     margin: 0 auto;
     padding: 0 24px;
+    padding-left: calc(24px + var(--safe-left));
+    padding-right: calc(24px + var(--safe-right));
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 64px;
+    height: var(--navbar-height);
 }
 
 .logo {
@@ -144,7 +178,12 @@ a:hover {
     color: var(--white);
     cursor: pointer;
     font-size: 12px;
-    padding: 4px;
+    min-width: var(--tap-target);
+    min-height: var(--tap-target);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
 }
 
 .dropdown-content {
@@ -182,17 +221,24 @@ a:hover {
     background: transparent;
     border: none;
     color: var(--white);
-    font-size: 24px;
+    font-size: 22px;
     cursor: pointer;
+    min-width: var(--tap-target);
+    min-height: var(--tap-target);
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
 }
 
 .mobile-menu {
     position: fixed;
-    top: 64px;
+    top: calc(var(--navbar-height) + var(--safe-top));
     left: 0;
     right: 0;
     background: var(--navy);
     padding: 16px 24px;
+    padding-left: calc(24px + var(--safe-left));
+    padding-right: calc(24px + var(--safe-right));
     z-index: 999;
     box-shadow: var(--shadow-lg);
 }
@@ -200,7 +246,7 @@ a:hover {
 .mobile-menu a {
     display: block;
     color: var(--white);
-    padding: 12px 0;
+    padding: 14px 0;
     font-size: 16px;
     border-bottom: 1px solid rgba(255,255,255,0.1);
 }
@@ -211,6 +257,7 @@ a:hover {
     align-items: center;
     justify-content: center;
     padding: 10px 20px;
+    min-height: var(--tap-target);
     border-radius: var(--radius);
     font-size: 14px;
     font-weight: 600;
@@ -219,6 +266,9 @@ a:hover {
     transition: var(--transition);
     text-decoration: none;
     gap: 8px;
+    /* Removes the double-tap-to-zoom delay/behavior on this specific
+       control only. Page-wide pinch-to-zoom is untouched. */
+    touch-action: manipulation;
 }
 
 .btn:hover {
@@ -277,7 +327,7 @@ a:hover {
 /* ===== LAYOUT ===== */
 .main-content {
     flex: 1;
-    padding-top: 64px;
+    padding-top: calc(var(--navbar-height) + var(--safe-top));
 }
 
 .container {
@@ -557,7 +607,7 @@ a:hover {
     padding: 12px 16px;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 16px;
     font-family: inherit;
 }
 
@@ -571,7 +621,7 @@ a:hover {
     padding: 12px 16px;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 16px;
     font-family: inherit;
     background: var(--white);
     min-width: 160px;
@@ -743,7 +793,7 @@ a:hover {
     padding: 12px 16px;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 16px;
     font-family: inherit;
     transition: var(--transition);
 }
@@ -858,7 +908,7 @@ a:hover {
     padding: 12px;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 16px;
     font-family: inherit;
 }
 
@@ -872,7 +922,7 @@ a:hover {
     padding: 12px;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 16px;
     font-family: inherit;
 }
 
@@ -1019,6 +1069,7 @@ a:hover {
 /* ===== TABLES ===== */
 .table-wrapper {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -1133,13 +1184,19 @@ tr:hover td {
 
 .modal-close {
     position: absolute;
-    top: 16px;
-    right: 16px;
+    top: 8px;
+    right: 8px;
     background: none;
     border: none;
     font-size: 24px;
     cursor: pointer;
     color: var(--gray-500);
+    min-width: var(--tap-target);
+    min-height: var(--tap-target);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
 }
 
 /* ===== FILE UPLOAD ===== */
@@ -1369,17 +1426,28 @@ tr:hover td {
     .summary-cards {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .brands-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
 }
 
-@media (max-width: 768px) {
+/* Dedicated nav breakpoint, separate from the general 768px tier below.
+   Standard tablets in portrait (iPad/iPad Air/iPad Pro 11" are 810-834px
+   wide) were falling just above the old 768px cutoff, keeping the full
+   desktop nav row (logo + 4 links + auth buttons, no wrap) squeezed into a
+   narrower width than it was designed for. */
+@media (max-width: 900px) {
     .nav-links {
         display: none;
     }
 
     .mobile-menu-btn {
-        display: block;
+        display: flex;
     }
+}
 
+@media (max-width: 768px) {
     .hero-content h1 {
         font-size: 32px;
     }
@@ -1417,15 +1485,18 @@ tr:hover td {
     }
 
     .sidebar-nav {
-        flex-direction: row;
-        overflow-x: auto;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 8px;
     }
 
     .sidebar-btn {
-        white-space: nowrap;
-        padding: 10px 16px;
+        white-space: normal;
+        padding: 12px 8px;
         font-size: 13px;
+        text-align: center;
+        min-height: var(--tap-target);
+        touch-action: manipulation;
     }
 
     .how-grid {
@@ -1465,6 +1536,34 @@ tr:hover td {
 }
 
 @media (max-width: 480px) {
+    .logo {
+        font-size: 18px;
+    }
+
+    .nav-auth {
+        gap: 8px;
+    }
+
+    .nav-auth .btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    .nav-user {
+        gap: 8px;
+    }
+
+    #userNameDisplay {
+        max-width: 70px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .admin-summary {
+        grid-template-columns: 1fr;
+    }
+
     .listings-grid {
         grid-template-columns: 1fr;
     }
