@@ -791,54 +791,63 @@ async function placeOrder() {
 
     if (!AppState.currentOrder?.listing || !AppState.currentUser) return;
 
-    const orderId = generatePublicId('CS');
     const listing = AppState.currentOrder.listing;
 
     try {
         await withLoading(async () => {
-            const payload = {
-                public_id: orderId,
-                listing_id: listing.id,
-                buyer_id: AppState.currentUser.id,
-                buyer_name: AppState.currentOrder.buyerName,
-                buyer_email: AppState.currentOrder.buyerEmail,
-                buyer_phone: AppState.currentOrder.buyerPhone,
-                brand: listing.brand,
-                face_value: listing.faceValue,
-                sale_price: listing.salePrice,
-                service_fee: AppState.currentOrder.serviceFee,
-                total: AppState.currentOrder.total,
-                status: 'pending_verification'
-            };
+            const response = await fetch('/api/create-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    listingId: listing.id,
+                    brand: listing.brand,
+                    faceValue: listing.faceValue,
+                    salePrice: listing.salePrice,
+                    serviceFee: AppState.currentOrder.serviceFee,
+                    total: AppState.currentOrder.total,
+                    buyerId: AppState.currentUser.id,
+                    buyerName: AppState.currentOrder.buyerName,
+                    buyerEmail: AppState.currentOrder.buyerEmail,
+                    buyerPhone: AppState.currentOrder.buyerPhone
+                })
+            });
 
-            const { error: orderError } = await supabaseClient.from('orders').insert(payload);
-            if (orderError) throw orderError;
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Unable to start checkout.');
 
-            const { error: listingError } = await supabaseClient
-                .from('listings')
-                .update({ status: 'sold', sold_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-                .eq('id', listing.id);
-
-            if (listingError) throw listingError;
+            // Hand off to Stripe's own hosted payment page. The order row
+            // and listing status change only happen after Stripe confirms
+            // the payment succeeded (handled server-side, not here).
+            window.location.href = data.url;
         });
-
-        document.getElementById('confirmOrderId').textContent = `Order ID: ${orderId}`;
-        document.getElementById('confirmSummary').innerHTML = `
-            <div class="summary-row">
-                <span>${listing.brand}</span>
-                <span>${formatCurrency(listing.faceValue)} value</span>
-            </div>
-            <div class="summary-row total">
-                <span>Total Paid</span>
-                <span>${formatCurrency(AppState.currentOrder.total)}</span>
-            </div>
-        `;
-
-        AppState.checkoutStep = MAX_CHECKOUT_STEP;
-        updateCheckoutSteps();
-        syncHistory('checkout', 'push');
     } catch (error) {
-        showError(error, 'Unable to place your order.');
+        showError(error, 'Unable to start checkout. Please try again.');
+    }
+}
+
+/**
+ * Handles the browser landing back on the app after Stripe Checkout,
+ * via the success_url / cancel_url set in api/create-checkout.js.
+ * NOTE: the order itself is created by the webhook (server-side), not
+ * here -- this just gives the buyer immediate feedback and cleans up the
+ * URL. There can be a short delay between this redirect and the order
+ * actually appearing in My Orders while the webhook finishes running.
+ */
+function handleStripeRedirectReturn() {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutResult = params.get('checkout');
+    if (!checkoutResult) return;
+
+    // Clean the query params out of the URL so refreshing doesn't re-trigger this.
+    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || '#home'}`;
+    window.history.replaceState(window.history.state, '', cleanUrl);
+
+    if (checkoutResult === 'success') {
+        alert("Payment received! We're finalizing your order now -- it will appear in My Orders shortly.");
+        router('orders', { historyMode: 'replace' });
+    } else if (checkoutResult === 'cancelled') {
+        alert('Checkout was cancelled. Your card was not charged.');
+        router('browse', { historyMode: 'replace' });
     }
 }
 
@@ -1680,6 +1689,12 @@ async function initializeApp() {
     // which would otherwise erase the recovery token before it can be used.
     if (window.location.hash.includes('type=recovery')) {
         router('reset-password', { historyMode: 'replace' });
+        return;
+    }
+
+    // Landing back here from Stripe Checkout (success or cancelled).
+    if (new URLSearchParams(window.location.search).get('checkout')) {
+        handleStripeRedirectReturn();
         return;
     }
 
