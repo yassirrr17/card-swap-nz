@@ -1218,7 +1218,7 @@ async function renderAdmin() {
                 supabaseClient.from('profiles').select('id'),
                 supabaseClient.from('listings').select('*'),
                 supabaseClient.from('submissions').select('*'),
-                supabaseClient.from('orders').select('total')
+                supabaseClient.from('orders').select('*')
             ]);
 
             if (usersRes.error) throw usersRes.error;
@@ -1229,7 +1229,7 @@ async function renderAdmin() {
             const users = usersRes.data || [];
             const listings = (listingsRes.data || []).map(listingRowToView);
             const submissions = (submissionsRes.data || []).map(submissionRowToView);
-            const orders = ordersRes.data || [];
+            const orders = (ordersRes.data || []).map(orderRowToView);
 
             document.getElementById('adminTotalUsers').textContent = users.length;
             document.getElementById('adminActiveListings').textContent = listings.filter((l) => l.status === 'active').length;
@@ -1274,6 +1274,51 @@ async function renderAdmin() {
                                     <td>
                                         <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="approveSubmission('${s.dbId}')">Approve</button>
                                         <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px; margin-left: 4px; color: var(--red); border-color: var(--red);" onclick="rejectSubmission('${s.dbId}')">Reject</button>
+                                    </td>
+                                </tr>
+                            `
+                                )
+                                .join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            const pendingDelivery = orders.filter((o) => o.statusKey === 'pending_verification');
+            const pendingDeliveryTable = document.getElementById('pendingDeliveryTable');
+            const pendingDeliveryEmpty = document.getElementById('pendingDeliveryEmpty');
+
+            if (pendingDelivery.length === 0) {
+                pendingDeliveryTable.innerHTML = '';
+                pendingDeliveryEmpty.classList.remove('hidden');
+            } else {
+                pendingDeliveryEmpty.classList.add('hidden');
+                pendingDeliveryTable.innerHTML = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Order ID</th>
+                                <th>Buyer</th>
+                                <th>Brand</th>
+                                <th>Value</th>
+                                <th>Price Paid</th>
+                                <th>Date</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${pendingDelivery
+                                .map(
+                                    (o) => `
+                                <tr id="order-row-${o.dbId}">
+                                    <td>${o.id}</td>
+                                    <td>${escapeHtml(o.buyerName)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(o.buyerEmail)}</span></td>
+                                    <td>${escapeHtml(o.brand)}</td>
+                                    <td>${formatCurrency(o.faceValue)}</td>
+                                    <td>${formatCurrency(o.total)}</td>
+                                    <td>${new Date(o.date).toLocaleDateString('en-NZ')}</td>
+                                    <td>
+                                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="deliverOrder('${o.dbId}')">Deliver</button>
                                     </td>
                                 </tr>
                             `
@@ -1449,6 +1494,39 @@ async function rejectSubmission(submissionDbId) {
         renderAdmin();
     } catch (error) {
         showError(error, 'Unable to reject submission.');
+    }
+}
+
+async function deliverOrder(orderDbId) {
+    if (!confirm('Send the gift card details to the buyer by email now?')) return;
+
+    try {
+        await withLoading(async () => {
+            const {
+                data: { session },
+                error: sessionError
+            } = await supabaseClient.auth.getSession();
+
+            if (sessionError) throw sessionError;
+            if (!session) throw new Error('Your session has expired. Please log in again.');
+
+            const response = await fetch('/api/deliver-order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({ orderId: orderDbId })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Unable to deliver this order.');
+        });
+
+        alert('Gift card details have been emailed to the buyer.');
+        renderAdmin();
+    } catch (error) {
+        showError(error, 'Unable to deliver this order.');
     }
 }
 
