@@ -5,5 +5,8 @@
   "description": "CardSwap NZ - vanilla HTML/CSS/JS gift card marketplace with Supabase backend",
   "scripts": {
     "build": "node scripts/generate-env.js"
+  },
+  "dependencies": {
+    "stripe": "^17.0.0"
   }
 }
