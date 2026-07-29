@@ -241,15 +241,7 @@
                                 <h3>Payment Method</h3>
                                 <div class="stripe-placeholder">
                                     <p>🔒 Secure payment via Stripe</p>
-                                    <div class="card-inputs">
-                                        <input type="text" placeholder="Card Number" class="card-input" maxlength="19">
-                                        <div class="card-row">
-                                            <input type="text" placeholder="MM/YY" class="card-input-small" maxlength="5">
-                                            <input type="text" placeholder="CVC" class="card-input-small" maxlength="3">
-                                        </div>
-                                        <input type="text" placeholder="Cardholder Name" class="card-input">
-                                    </div>
-                                    <p class="stripe-note">Your card details are encrypted. We never store them.</p>
+                                    <p class="stripe-note">You'll be redirected to Stripe's secure payment page to enter your card details. CardSwap NZ never sees or stores your card number.</p>
                                 </div>
                                 <div class="form-group checkbox-group">
                                     <label><input type="checkbox" id="termsCheck" required> I agree to the <a href="#" onclick="router('terms')">Terms and Conditions</a> and <a href="#" onclick="router('privacy')">Privacy Policy</a></label>
@@ -257,7 +249,7 @@
                             </div>
                             <div class="form-actions">
                                 <button type="button" class="btn btn-outline" onclick="goToCheckoutStep(2)">Back</button>
-                                <button class="btn btn-primary btn-large" id="placeOrderBtn" onclick="placeOrder()">Place Order</button>
+                                <button class="btn btn-primary btn-large" id="placeOrderBtn" onclick="placeOrder()">Continue to Secure Payment</button>
                             </div>
                         </div>
 
