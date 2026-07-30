@@ -18,7 +18,7 @@
  *   cache.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const STATIC_CACHE = `cardswap-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `cardswap-runtime-${CACHE_VERSION}`;
 
