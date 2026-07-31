@@ -364,10 +364,13 @@ a:hover {
 .btn-gold {
     background: var(--gold);
     color: var(--navy-dark);
+    box-shadow: 0 4px 14px rgba(217,178,76,0.35);
 }
 
 .btn-gold:hover {
     background: var(--gold-dark);
+    box-shadow: 0 6px 18px rgba(217,178,76,0.45);
+    transform: translateY(-2px);
 }
 
 .btn-outline {
@@ -485,41 +488,57 @@ a:hover {
 
 .trust-strip {
     display: flex;
-    justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin: -56px auto 48px;
-    max-width: 900px;
-    position: relative;
-    z-index: 2;
-}
-
-.trust-strip-item {
-    flex: 1 1 200px;
     background: var(--white);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
-    padding: 20px;
-    text-align: center;
+    margin: -44px auto 56px;
+    max-width: 760px;
+    position: relative;
+    z-index: 2;
+    overflow: hidden;
+}
+
+.trust-strip-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 18px 10px;
+    border-right: 1px solid var(--gray-100);
+    text-align: left;
+}
+
+.trust-strip-item:last-child {
+    border-right: none;
 }
 
 .trust-strip-icon {
-    display: block;
-    font-size: 24px;
-    margin-bottom: 8px;
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1;
 }
 
 .trust-strip-item p {
     font-weight: 600;
     color: var(--navy);
     margin: 0;
-    font-size: 14px;
+    font-size: 12.5px;
+    line-height: 1.25;
 }
 
 @media (max-width: 600px) {
     .trust-strip {
-        margin-top: 24px;
+        margin: -32px 16px 40px;
+    }
+    .trust-strip-item {
         flex-direction: column;
+        gap: 4px;
+        padding: 14px 6px;
+        text-align: center;
+    }
+    .trust-strip-item p {
+        font-size: 10.5px;
     }
 }
 
@@ -552,8 +571,16 @@ a:hover {
 }
 
 .step-icon {
-    font-size: 48px;
-    margin-bottom: 16px;
+    width: 64px;
+    height: 64px;
+    background: var(--navy);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    margin: 0 auto 20px;
+    box-shadow: 0 6px 16px rgba(16,20,46,0.2);
 }
 
 .step-card h3 {
@@ -715,7 +742,7 @@ a:hover {
 
 /* ===== SELL CALLOUT (homepage) ===== */
 .sell-callout {
-    background: var(--navy);
+    background: linear-gradient(135deg, var(--navy-light) 0%, var(--navy-dark) 100%);
     border-radius: var(--radius-xl);
     padding: 32px 40px;
     margin: 48px 0;
@@ -724,6 +751,8 @@ a:hover {
     justify-content: space-between;
     gap: 24px;
     flex-wrap: wrap;
+    box-shadow: var(--shadow-md);
+    border: 1px solid rgba(217,178,76,0.15);
 }
 
 .sell-callout-text h2 {
