@@ -10,19 +10,19 @@
         combination with the safe-area-inset padding in style.css.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>CardSwap NZ - Buy & Sell Gift Cards</title>
+    <title>Giftlio - Buy & Sell Gift Cards</title>
     <meta name="description" content="New Zealand's trusted marketplace for buying and selling discounted gift cards. Save up to 25% on your favourite NZ brands.">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#1a237e">
+    <meta name="theme-color" content="#10142E">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
     <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
 
     <!-- iOS install support (iOS does not read manifest.json for these) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="CardSwap NZ">
+    <meta name="apple-mobile-web-app-title" content="Giftlio">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,7 +34,10 @@
     <!-- Navigation -->
     <nav class="navbar">
         <div class="nav-container">
-            <a href="#" class="logo" onclick="router('home')">CardSwap NZ</a>
+            <a href="#" class="logo" onclick="router('home')">
+                <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#D9B24C"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#D9B24C" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#D9B24C"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#D9B24C"/></svg></span>
+                <span class="logo-word">Giftlio</span>
+            </a>
             <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
             <div class="nav-links" id="navLinks">
                 <a href="#" onclick="router('home')">Home</a>
@@ -61,15 +64,72 @@
         </div>
     </nav>
 
+    <!-- Bottom Tab Navigation (mobile only) -->
+    <nav class="bottom-nav" id="bottomNav">
+        <div class="bottom-nav-inner">
+            <button class="bottom-nav-item" data-page="home" onclick="router('home')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
+                <span>Home</span>
+            </button>
+            <button class="bottom-nav-item" data-page="browse" onclick="router('browse')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/><path d="M9 13a3 3 0 0 0 6 0"/></svg>
+                <span>Shop</span>
+            </button>
+            <button class="bottom-nav-item" data-page="sell" onclick="router('sell')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19"/><path d="M6 14.5h4"/></svg>
+                <span>Sell</span>
+            </button>
+            <button class="bottom-nav-item" data-page="orders" onclick="router('orders')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2"/><path d="M3 7v10a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/><path d="M15 13h5a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-5a2 2 0 0 1 0-4z"/></svg>
+                <span>Wallet</span>
+            </button>
+            <button class="bottom-nav-item" data-page="profile" onclick="handleBottomNavProfile()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"/></svg>
+                <span>Profile</span>
+            </button>
+        </div>
+    </nav>
+
     <!-- Offline status banner (toggled by app.js via navigator.onLine) -->
     <div class="offline-banner hidden" id="offlineBanner" role="status" aria-live="polite">
         You're offline. Some features won't work until your connection is back.
     </div>
 
-    <!-- PWA install prompt (toggled by app.js on the beforeinstallprompt event) -->
-    <button type="button" class="install-btn hidden" id="installBtn" onclick="promptInstall()" aria-label="Install CardSwap NZ app">
-        <span aria-hidden="true">📲</span> Install App
-    </button>
+    <!-- PWA install banner (shown/configured by app.js based on platform + beforeinstallprompt) -->
+    <div class="install-banner hidden" id="installBanner" role="complementary" aria-label="Install app">
+        <div class="install-banner-content">
+            <span class="install-banner-icon" aria-hidden="true">📲</span>
+            <div class="install-banner-text">
+                <p class="install-banner-title" id="installBannerTitle">Install Giftlio</p>
+                <p class="install-banner-sub" id="installBannerSub">Add it to your home screen for the full app experience</p>
+            </div>
+            <button type="button" class="btn btn-gold install-banner-action" id="installBannerAction" onclick="promptInstall()">Install</button>
+            <button type="button" class="install-banner-close" onclick="dismissInstallBanner()" aria-label="Dismiss">×</button>
+        </div>
+    </div>
+
+    <!-- iOS-specific instructions modal (iOS Safari cannot be auto-prompted to install) -->
+    <div class="modal-overlay hidden" id="iosInstallOverlay" onclick="closeIosInstallModal()"></div>
+    <div class="modal hidden" id="iosInstallModal">
+        <button class="modal-close" onclick="closeIosInstallModal()">×</button>
+        <div style="text-align: center;">
+            <h2 style="color: var(--navy); margin-bottom: 16px;">Install Giftlio on iPhone</h2>
+            <div style="text-align: left; display: grid; gap: 16px; margin-top: 20px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span style="font-size: 24px;">1️⃣</span>
+                    <p>Tap the <strong>Share</strong> button <span aria-hidden="true">⬆️</span> in Safari's toolbar</p>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span style="font-size: 24px;">2️⃣</span>
+                    <p>Scroll down and tap <strong>"Add to Home Screen"</strong></p>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span style="font-size: 24px;">3️⃣</span>
+                    <p>Tap <strong>"Add"</strong> in the top right</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
@@ -87,7 +147,11 @@
             <div class="hero">
                 <div class="hero-content">
                     <h1>Buy Discounted Gift Cards</h1>
-                    <p class="hero-subtitle">Save up to 25% on your favourite NZ brands</p>
+                    <p class="hero-subtitle">Trusted by Kiwis across Auckland — save up to 25% on your favourite NZ brands</p>
+                    <div class="hero-badges">
+                        <span class="hero-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:4px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg>Verified sellers</span>
+                        <span class="hero-badge">🔒 Secure Stripe payment</span>
+                    </div>
                     <div class="hero-buttons">
                         <button class="btn btn-gold btn-large" onclick="router('browse')">Browse Cards</button>
                         <button class="btn btn-outline btn-large" onclick="router('sell')">Sell Your Card</button>
@@ -96,8 +160,46 @@
             </div>
 
             <div class="container">
+                <div class="trust-strip">
+                    <div class="trust-strip-item">
+                        <span class="trust-strip-icon">📍</span>
+                        <p>NZ owned + operated</p>
+                    </div>
+                    <div class="trust-strip-item">
+                        <span class="trust-strip-icon">✅</span>
+                        <p>Manually verified</p>
+                    </div>
+                    <div class="trust-strip-item">
+                        <span class="trust-strip-icon">⏱️</span>
+                        <p>24hr delivery</p>
+                    </div>
+                </div>
+
+                <div class="section featured-deals">
+                    <h2>Shop Gift Cards</h2>
+                    <div class="listings-grid" id="featuredGrid"></div>
+                </div>
+
+                <div class="sell-callout">
+                    <div class="sell-callout-text">
+                        <h2>Turn Unwanted Cards into Cash</h2>
+                        <p>Get an instant offer, or list on the marketplace and set your own price.</p>
+                    </div>
+                    <button class="btn btn-gold btn-large" onclick="router('sell')">Sell Now</button>
+                </div>
+
+                <div class="section recommended-section">
+                    <h2>Recommended For You</h2>
+                    <div class="listings-grid" id="recommendedGrid"></div>
+                </div>
+
+                <div class="section popular-brands">
+                    <h2>Browse by Retailer</h2>
+                    <div class="brands-grid" id="brandsGrid"></div>
+                </div>
+
                 <div class="section how-it-works">
-                    <h2>How CardSwap Works</h2>
+                    <h2>How Giftlio Works</h2>
                     <div class="steps-grid">
                         <div class="step-card">
                             <div class="step-icon">🔍</div>
@@ -117,18 +219,8 @@
                     </div>
                 </div>
 
-                <div class="section popular-brands">
-                    <h2>Popular Brands</h2>
-                    <div class="brands-grid" id="brandsGrid"></div>
-                </div>
-
-                <div class="section featured-deals">
-                    <h2>Featured Deals</h2>
-                    <div class="listings-grid" id="featuredGrid"></div>
-                </div>
-
                 <div class="section trust-section">
-                    <h2>Why Kiwis Trust CardSwap</h2>
+                    <h2>Why Kiwis Trust Giftlio</h2>
                     <div class="trust-grid">
                         <div class="trust-item">
                             <span class="check-icon">✓</span>
@@ -143,6 +235,11 @@
                             <p>NZ-based customer support</p>
                         </div>
                     </div>
+                </div>
+
+                <div class="social-proof-strip">
+                    <span class="social-proof-stars">⭐⭐⭐⭐⭐</span>
+                    <p>4.8 from 200+ Kiwi buyers this month</p>
                 </div>
 
                 <div class="cta-banner">
@@ -241,7 +338,11 @@
                                 <h3>Payment Method</h3>
                                 <div class="stripe-placeholder">
                                     <p>🔒 Secure payment via Stripe</p>
-                                    <p class="stripe-note">You'll be redirected to Stripe's secure payment page to enter your card details. CardSwap NZ never sees or stores your card number.</p>
+                                    <p class="stripe-note">You'll be redirected to Stripe's secure payment page to enter your card details. Giftlio never sees or stores your card number.</p>
+                                </div>
+                                <div class="checkout-trust-row">
+                                    <span class="checkout-trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg>Giftlio Guarantee</span>
+                                    <span class="checkout-trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V5l7-3z"/></svg>Verified balance</span>
                                 </div>
                                 <div class="form-group checkbox-group">
                                     <label><input type="checkbox" id="termsCheck" required> I agree to the <a href="#" onclick="router('terms')">Terms and Conditions</a> and <a href="#" onclick="router('privacy')">Privacy Policy</a></label>
@@ -601,7 +702,7 @@
 
                 <div class="legal-content">
                     <h3>1. Introduction</h3>
-                    <p>CardSwap NZ (we, us, our) is committed to protecting your privacy. This policy explains how we collect, use, and safeguard your personal information.</p>
+                    <p>Giftlio (we, us, our) is committed to protecting your privacy. This policy explains how we collect, use, and safeguard your personal information.</p>
 
                     <h3>2. Information We Collect</h3>
                     <ul>
@@ -631,7 +732,7 @@
                         <li>Request correction of inaccurate data</li>
                         <li>Request deletion (with limitations for legal/transaction records)</li>
                     </ul>
-                    <p>Contact: privacy@cardswap.nz</p>
+                    <p>Contact: giftlio.co.nz@gmail.com</p>
 
                     <h3>7. Cookies</h3>
                     <p>Essential cookies for site functionality. No tracking cookies for advertising.</p>
@@ -651,11 +752,11 @@
 
                 <div class="legal-content">
                     <h3>1. Agreement</h3>
-                    <p>By using CardSwap NZ, you agree to these terms. If you disagree, do not use our service.</p>
+                    <p>By using Giftlio, you agree to these terms. If you disagree, do not use our service.</p>
 
                     <h3>2. Marketplace Rules</h3>
                     <ul>
-                        <li>CardSwap NZ is a platform connecting buyers and sellers of gift cards</li>
+                        <li>Giftlio is a platform connecting buyers and sellers of gift cards</li>
                         <li>We do not own the gift cards listed</li>
                         <li>All transactions are between users; we facilitate payment and verification</li>
                     </ul>
@@ -699,7 +800,7 @@
                     <p>These terms governed by New Zealand law. Disputes resolved in NZ courts.</p>
 
                     <h3>10. Contact</h3>
-                    <p>Questions? Contact us at support@cardswap.nz</p>
+                    <p>Questions? Contact us at giftlio.co.nz@gmail.com</p>
                 </div>
             </div>
         </section>
@@ -712,7 +813,7 @@
                     <div class="how-card">
                         <div class="how-num">1</div>
                         <h3>Sellers List Cards</h3>
-                        <p>Have an unwanted gift card? Submit it to CardSwap NZ. We verify the balance and list it for sale.</p>
+                        <p>Have an unwanted gift card? Submit it to Giftlio. We verify the balance and list it for sale.</p>
                     </div>
                     <div class="how-card">
                         <div class="how-num">2</div>
@@ -750,16 +851,16 @@
     <footer class="footer">
         <div class="container footer-content">
             <div class="footer-brand">
-                <span class="logo">CardSwap NZ</span>
+                <span class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#D9B24C"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#D9B24C" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#D9B24C"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#D9B24C"/></svg></span><span class="logo-word">Giftlio</span></span>
                 <p>New Zealand's trusted gift card marketplace.</p>
             </div>
             <div class="footer-links">
                 <a href="#" onclick="router('how-it-works')">How It Works</a>
                 <a href="#" onclick="router('privacy')">Privacy Policy</a>
                 <a href="#" onclick="router('terms')">Terms & Conditions</a>
-                <a href="mailto:support@cardswap.nz">Contact</a>
+                <a href="mailto:giftlio.co.nz@gmail.com">Contact</a>
             </div>
-            <p class="copyright">© 2026 CardSwap NZ. All rights reserved.</p>
+            <p class="copyright">© 2026 Giftlio. All rights reserved.</p>
         </div>
     </footer>
 
