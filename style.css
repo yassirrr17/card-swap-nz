@@ -463,6 +463,66 @@ a:hover {
     margin-bottom: 40px;
 }
 
+.hero-badges {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(217,178,76,0.14);
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.trust-strip {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: -56px auto 48px;
+    max-width: 900px;
+    position: relative;
+    z-index: 2;
+}
+
+.trust-strip-item {
+    flex: 1 1 200px;
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    padding: 20px;
+    text-align: center;
+}
+
+.trust-strip-icon {
+    display: block;
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.trust-strip-item p {
+    font-weight: 600;
+    color: var(--navy);
+    margin: 0;
+    font-size: 14px;
+}
+
+@media (max-width: 600px) {
+    .trust-strip {
+        margin-top: 24px;
+        flex-direction: column;
+    }
+}
+
 .hero-buttons {
     display: flex;
     gap: 16px;
@@ -688,6 +748,26 @@ a:hover {
 
 .cta-banner h2 {
     color: var(--white);
+    margin-bottom: 24px;
+}
+
+.social-proof-strip {
+    text-align: center;
+    padding: 24px;
+    color: var(--gray-700);
+    font-weight: 600;
+}
+
+.social-proof-stars {
+    display: block;
+    font-size: 20px;
+    margin-bottom: 6px;
+}
+
+.section-subtitle {
+    color: var(--gray-600);
+    font-size: 15px;
+    margin-top: -8px;
     margin-bottom: 24px;
 }
 
