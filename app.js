@@ -3,12 +3,59 @@ const MAX_CHECKOUT_STEP = 4;
 const DEFAULT_LISTING_PRICE_FACTOR = 0.9;
 const SELLER_OFFER_RATE = 0.85;
 
+const TOAST_ICONS = {
+    success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+    error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>',
+    warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>'
+};
+
+/**
+ * Shows a toast notification. type: 'success' | 'error' | 'warning' | 'info'
+ * Replaces alert() throughout the app so nothing blocks the UI with a browser dialog.
+ */
+function showToast(type, message, duration = 5000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) {
+        // Fallback in the unlikely event the container isn't in the DOM yet
+        console.warn('Toast container missing, falling back to console:', message);
+        return;
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.info}</span>
+        <span class="toast-message"></span>
+        <button class="toast-close" aria-label="Dismiss notification">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+        </button>
+    `;
+    toast.querySelector('.toast-message').textContent = message;
+
+    const remove = () => {
+        toast.classList.add('closing');
+        setTimeout(() => toast.remove(), 200);
+    };
+    toast.querySelector('.toast-close').addEventListener('click', remove);
+    const timer = setTimeout(remove, duration);
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+
+    container.appendChild(toast);
+}
+
 const AppState = {
     currentUser: null,
     currentListing: null,
     checkoutStep: DEFAULT_CHECKOUT_STEP,
     currentOrder: null
 };
+
+function toggleSafeItem(button) {
+    const item = button.closest('.safe-item');
+    const isOpen = item.classList.contains('open');
+    item.classList.toggle('open', !isOpen);
+    button.setAttribute('aria-expanded', String(!isOpen));
+}
 
 const PAGE_SECTION_MAP = {
     home: 'home-section',
@@ -169,7 +216,7 @@ function clearErrors() {
 
 function showError(error, fallback = 'Something went wrong. Please try again.') {
     console.error(error);
-    alert(error?.message || fallback);
+    showToast('error', error?.message || fallback);
 }
 
 function listingRowToView(row) {
@@ -379,12 +426,12 @@ async function handleSignup() {
             if (data.session?.user) {
                 AppState.currentUser = await fetchProfile(data.session.user.id);
                 updateNavForUser();
-                alert('Account created successfully!');
+                showToast('success', 'Account created successfully!');
                 router('home');
                 return;
             }
 
-            alert('Account created. Please verify your email and then sign in.');
+            showToast('success', 'Account created. Please verify your email and then sign in.');
             router('login');
         });
     } catch (error) {
@@ -428,7 +475,7 @@ async function handleForgot() {
             if (error) throw error;
         });
 
-        alert(`If this email exists in our system, a reset link has been sent to ${email}`);
+        showToast('info', `If this email exists in our system, a reset link has been sent to ${email}`);
         router('login');
     } catch (error) {
         showError(error, 'Unable to request a reset link.');
@@ -462,7 +509,7 @@ async function handleResetPassword() {
             if (error) throw error;
         });
 
-        alert('Your password has been updated. Please log in with your new password.');
+        showToast('success', 'Your password has been updated. Please log in with your new password.');
 
         // The recovery session Supabase created to allow this update is not a
         // normal login session -- sign out so the user lands on a clean login
@@ -518,11 +565,27 @@ function renderListingCard(listing) {
                 <div class="listing-value">${formatCurrency(listing.faceValue)}</div>
                 <div class="listing-price">${formatCurrency(listing.salePrice)}</div>
                 <span class="discount-badge">Save ${listing.discount}%</span>
-                <div class="listing-seller-verified">✓ Verified · ${safeSeller}</div>
+                <div class="listing-seller-verified"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}</div>
                 <button class="btn btn-primary" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>
             </div>
         </div>
     `;
+}
+
+function renderSkeletonCards(count) {
+    return Array.from({ length: count })
+        .map(
+            () => `
+        <div class="listing-card skeleton-card" aria-hidden="true">
+            <div class="skel skel-badge"></div>
+            <div class="skel skel-line" style="width:60%; margin-top:10px;"></div>
+            <div class="skel skel-line" style="width:40%; height:22px; margin-top:10px;"></div>
+            <div class="skel skel-line" style="width:80%;"></div>
+            <div class="skel skel-btn"></div>
+        </div>
+    `
+        )
+        .join('');
 }
 
 async function renderHome() {
@@ -538,6 +601,10 @@ async function renderHome() {
     `
         )
         .join('');
+
+    // Show skeletons immediately so the page never looks blank while data loads
+    document.getElementById('featuredGrid').innerHTML = renderSkeletonCards(4);
+    document.getElementById('recommendedGrid').innerHTML = renderSkeletonCards(4);
 
     try {
         await withLoading(async () => {
@@ -556,6 +623,8 @@ async function renderHome() {
 }
 
 async function renderBrowse() {
+    document.getElementById('browseGrid').innerHTML = renderSkeletonCards(8);
+    document.getElementById('browseEmpty').classList.add('hidden');
     await applyFilters();
 }
 
@@ -653,7 +722,6 @@ async function viewListing(id, options = {}) {
                         <p><strong>Seller:</strong> ${safeSeller}</p>
                         <p><strong>Member since:</strong> ${safeSellerSince}</p>
                         <p><strong>Cards sold:</strong> ${listing.cardsSold}</p>
-                        <p>⭐⭐⭐⭐⭐ 4.5 stars</p>
                     </div>
                     <div class="detail-section">
                         <h3>Description</h3>
@@ -661,16 +729,34 @@ async function viewListing(id, options = {}) {
                     </div>
                     <div class="detail-section trust-icon-row">
                         <div class="trust-icon-item">
-                            <span>✅</span>
+                            <span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg></span>
                             <p>Balance<br>verified</p>
                         </div>
                         <div class="trust-icon-item">
-                            <span>🔒</span>
+                            <span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
                             <p>Secure<br>Stripe pay</p>
                         </div>
                         <div class="trust-icon-item">
-                            <span>📧</span>
+                            <span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></span>
                             <p>Delivered<br>in 24hrs</p>
+                        </div>
+                    </div>
+                    <div class="detail-section">
+                        <h3>What you'll receive</h3>
+                        <div class="delivery-preview">
+                            <div class="delivery-preview-head">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+                                Email preview
+                            </div>
+                            <div class="delivery-preview-card" style="background: linear-gradient(135deg, var(--navy-light), var(--navy-dark));">
+                                <div class="dp-brand">${safeBrand} Gift Card</div>
+                                <div class="dp-number">•••• •••• •••• <span class="dp-last4">7719</span></div>
+                                <span class="dp-balance-stamp">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>
+                                    Verified Balance: ${formatCurrency(listing.faceValue)}
+                                </span>
+                            </div>
+                            <p class="delivery-preview-note">Full card number and PIN are only ever shown inside your own Giftlio account after purchase — never in the pre-purchase preview.</p>
                         </div>
                     </div>
                     <div class="detail-action">
@@ -798,7 +884,7 @@ function goToCheckoutStep(step) {
 
 async function placeOrder() {
     if (!document.getElementById('termsCheck').checked) {
-        alert('Please agree to the Terms and Conditions');
+        showToast('warning', 'Please agree to the Terms and Conditions');
         return;
     }
 
@@ -856,10 +942,10 @@ function handleStripeRedirectReturn() {
     window.history.replaceState(window.history.state, '', cleanUrl);
 
     if (checkoutResult === 'success') {
-        alert("Payment received! We're finalizing your order now -- it will appear in My Orders shortly.");
+        showToast('success', "Payment received! We're finalizing your order now — it will appear in My Orders shortly.");
         router('orders', { historyMode: 'replace' });
     } else if (checkoutResult === 'cancelled') {
-        alert('Checkout was cancelled. Your card was not charged.');
+        showToast('info', 'Checkout was cancelled. Your card was not charged.');
         router('browse', { historyMode: 'replace' });
     }
 }
@@ -1092,7 +1178,7 @@ async function handleSubmission() {
     const terms = document.getElementById('subTerms').checked;
 
     if (!brand || !value || !balance || !expiry || !cardNum || !terms) {
-        alert('Please fill in all required fields');
+        showToast('warning', 'Please fill in all required fields');
         return;
     }
 
@@ -1118,7 +1204,7 @@ async function handleSubmission() {
             if (error) throw error;
         });
 
-        alert(`Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
+        showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
         document.getElementById('offerAmount').textContent = '$0.00';
@@ -1153,48 +1239,94 @@ async function renderSellerSubmissions() {
 
             empty.classList.add('hidden');
 
-            const badgeMap = {
-                'Pending Review': 'badge-yellow',
-                Approved: 'badge-green',
-                Rejected: 'badge-red',
-                Listed: 'badge-blue',
-                Sold: 'badge-green'
-            };
+            // Fetch listing status for approved submissions, so the timeline can
+            // honestly show whether Giftlio has since listed/sold the card.
+            const submissionIds = submissions.map((s) => s.dbId).filter(Boolean);
+            let listingBySubmission = {};
+            if (submissionIds.length) {
+                const { data: listingRows } = await supabaseClient
+                    .from('listings')
+                    .select('submission_id, status')
+                    .in('submission_id', submissionIds);
+                (listingRows || []).forEach((l) => {
+                    listingBySubmission[l.submission_id] = l.status;
+                });
+            }
 
             table.innerHTML = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Brand</th>
-                            <th>Value</th>
-                            <th>Your Offer</th>
-                            <th>Status</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${submissions
-                            .map(
-                                (s) => `
-                            <tr>
-                                <td>${s.id}</td>
-                                <td>${s.brand}</td>
-                                <td>${formatCurrency(s.faceValue)}</td>
-                                <td>${formatCurrency(s.offerAmount)}</td>
-                                <td><span class="badge ${badgeMap[s.status] || 'badge-gray'}">${s.status}</span></td>
-                                <td>${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
-                            </tr>
-                        `
-                            )
-                            .join('')}
-                    </tbody>
-                </table>
+                <div class="submissions-list">
+                    ${submissions
+                        .map((s) => renderSubmissionCard(s, listingBySubmission[s.dbId]))
+                        .join('')}
+                </div>
             `;
         });
     } catch (error) {
         showError(error, 'Unable to load submissions.');
     }
+}
+
+function renderSubmissionCard(s, listingStatus) {
+    const isRejected = s.status === 'Rejected';
+    const isPending = s.status === 'Pending Review';
+    const isApproved = s.status === 'Approved' || s.status === 'Listed' || s.status === 'Sold';
+
+    // Stage 1: Submitted -- always true once the row exists.
+    // Stage 2: Verified -- true once no longer pending review (approved or rejected).
+    // Stage 3: Payout Sent -- true as soon as approved, since Instant Sell pays at
+    // approval time, not after a later sale.
+    const stage2Done = !isPending;
+    const stage3Done = isApproved;
+
+    const badgeMap = { 'Pending Review': 'badge-yellow', Approved: 'badge-green', Rejected: 'badge-red', Listed: 'badge-blue', Sold: 'badge-green' };
+
+    if (isRejected) {
+        return `
+            <div class="submission-card">
+                <div class="submission-card-head">
+                    <div>
+                        <strong>${s.brand}</strong> — ${formatCurrency(s.faceValue)}
+                        <span class="submission-id">#${s.id}</span>
+                    </div>
+                    <span class="badge ${badgeMap[s.status]}">${s.status}</span>
+                </div>
+                <p class="submission-rejected-note">This submission wasn't approved. Check your email for the reason, or contact support@giftlio.co.nz.</p>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="submission-card">
+            <div class="submission-card-head">
+                <div>
+                    <strong>${s.brand}</strong> — ${formatCurrency(s.faceValue)}
+                    <span class="submission-id">#${s.id}</span>
+                </div>
+                <span class="badge ${badgeMap[s.status]}">${s.status}</span>
+            </div>
+            <div class="seller-timeline">
+                <div class="st-fill" style="width:${stage3Done ? '100%' : stage2Done ? '50%' : '0%'}"></div>
+                <div class="st-step done">
+                    <span class="st-dot">${TOAST_ICONS.success}</span>
+                    <p>Submitted</p>
+                </div>
+                <div class="st-step ${stage2Done ? 'done' : 'current'}">
+                    <span class="st-dot">${stage2Done ? TOAST_ICONS.success : '2'}</span>
+                    <p>Being Verified</p>
+                </div>
+                <div class="st-step ${stage3Done ? 'done' : ''}">
+                    <span class="st-dot">${stage3Done ? TOAST_ICONS.success : '3'}</span>
+                    <p>Payout Sent</p>
+                </div>
+            </div>
+            <p class="submission-offer">Your offer: <strong>${formatCurrency(s.offerAmount)}</strong>${stage3Done ? ' — paid out' : ' (paid once verified)'}</p>
+            ${
+                listingStatus
+                    ? `<p class="submission-resale-note">${listingStatus === 'sold' ? 'Giftlio has since resold this card.' : 'This card is now listed for resale on Giftlio.'}</p>`
+                    : ''
+            }
+        </div>
+    `;
 }
 
 async function renderSellerEarnings() {
@@ -1482,7 +1614,7 @@ async function approveSubmission(submissionDbId) {
             if (updateError) throw updateError;
         });
 
-        alert('Submission approved and listed on marketplace!');
+        showToast('success', 'Submission approved and listed on marketplace!');
         renderAdmin();
     } catch (error) {
         showError(error, 'Unable to approve submission.');
@@ -1503,7 +1635,7 @@ async function rejectSubmission(submissionDbId) {
             if (error) throw error;
         });
 
-        alert(`Submission rejected. Reason: ${reason}`);
+        showToast('info', `Submission rejected. Reason: ${reason}`);
         renderAdmin();
     } catch (error) {
         showError(error, 'Unable to reject submission.');
@@ -1536,7 +1668,7 @@ async function deliverOrder(orderDbId) {
             if (!response.ok) throw new Error(data.error || 'Unable to deliver this order.');
         });
 
-        alert('Gift card details have been emailed to the buyer.');
+        showToast('success', 'Gift card details have been emailed to the buyer.');
         renderAdmin();
     } catch (error) {
         showError(error, 'Unable to deliver this order.');
