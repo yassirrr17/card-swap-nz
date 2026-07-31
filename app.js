@@ -511,14 +511,14 @@ function renderListingCard(listing) {
 
     return `
         <div class="listing-card" onclick="viewListing('${listing.id}')">
-            <div class="listing-card-header" style="border-left: 4px solid ${BRAND_COLORS[listing.brand] || '#1a237e'}">
+            <div class="listing-card-header" style="border-left: 4px solid ${BRAND_COLORS[listing.brand] || '#10142E'}">
                 <h3>${safeBrand}</h3>
             </div>
             <div class="listing-card-body">
                 <div class="listing-value">${formatCurrency(listing.faceValue)}</div>
                 <div class="listing-price">${formatCurrency(listing.salePrice)}</div>
                 <span class="discount-badge">Save ${listing.discount}%</span>
-                <div class="listing-seller">Sold by: ${safeSeller}</div>
+                <div class="listing-seller-verified">✓ Verified · ${safeSeller}</div>
                 <button class="btn btn-primary" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>
             </div>
         </div>
@@ -531,7 +531,7 @@ async function renderHome() {
     brandsGrid.innerHTML = brands
         .map(
             (b) => `
-        <div class="brand-card" onclick="filterByBrand('${b}')" style="border-top: 4px solid ${BRAND_COLORS[b] || '#1a237e'}">
+        <div class="brand-card" onclick="filterByBrand('${b}')" style="border-top: 4px solid ${BRAND_COLORS[b] || '#10142E'}">
             <h3>${b}</h3>
             <p>Up to 20% off</p>
         </div>
@@ -541,11 +541,16 @@ async function renderHome() {
 
     try {
         await withLoading(async () => {
-            const listings = (await getActiveListings()).slice(0, 4);
-            document.getElementById('featuredGrid').innerHTML = listings.map((l) => renderListingCard(l)).join('');
+            const allListings = await getActiveListings();
+            document.getElementById('featuredGrid').innerHTML = allListings.slice(0, 4).map((l) => renderListingCard(l)).join('');
+            const recommended = allListings.slice(4, 8).length ? allListings.slice(4, 8) : allListings.slice(0, 4);
+            document.getElementById('recommendedGrid').innerHTML = recommended.length
+                ? recommended.map((l) => renderListingCard(l)).join('')
+                : '<p style="color: var(--gray-500);">More listings coming soon.</p>';
         });
     } catch (error) {
         document.getElementById('featuredGrid').innerHTML = '<p style="color: var(--gray-500);">Unable to load featured listings.</p>';
+        document.getElementById('recommendedGrid').innerHTML = '';
         showError(error, 'Unable to load featured listings.');
     }
 }
@@ -654,11 +659,19 @@ async function viewListing(id, options = {}) {
                         <h3>Description</h3>
                         <p>This is a genuine ${safeBrand} gift card with a verified balance. Card details will be delivered via email within 24 hours of purchase after manual verification.</p>
                     </div>
-                    <div class="detail-section">
-                        <h3>Trust & Safety</h3>
-                        <p>✓ Manual balance verification included<br>
-                        ✓ Secure payment via Stripe<br>
-                        ✓ Email delivery within 24 hours</p>
+                    <div class="detail-section trust-icon-row">
+                        <div class="trust-icon-item">
+                            <span>✅</span>
+                            <p>Balance<br>verified</p>
+                        </div>
+                        <div class="trust-icon-item">
+                            <span>🔒</span>
+                            <p>Secure<br>Stripe pay</p>
+                        </div>
+                        <div class="trust-icon-item">
+                            <span>📧</span>
+                            <p>Delivered<br>in 24hrs</p>
+                        </div>
                     </div>
                     <div class="detail-action">
                         <button class="btn btn-gold" onclick="startCheckout()">
@@ -1647,7 +1660,24 @@ async function router(page, options = {}) {
     if (page === 'seller-dashboard') await renderSellerDashboard();
     if (page === 'admin') await renderAdmin();
 
+    updateBottomNavActive(page);
     window.scrollTo(0, 0);
+}
+
+function updateBottomNavActive(page) {
+    const navMap = { home: 'home', browse: 'browse', sell: 'sell', orders: 'orders' };
+    const activeKey = navMap[page] || (page === 'seller-dashboard' || page === 'login' || page === 'signup' ? 'profile' : null);
+    document.querySelectorAll('.bottom-nav-item').forEach((item) => {
+        item.classList.toggle('active', item.dataset.page === activeKey);
+    });
+}
+
+function handleBottomNavProfile() {
+    if (AppState.currentUser) {
+        router('seller-dashboard');
+    } else {
+        router('login');
+    }
 }
 
 function setupEventListeners() {
@@ -1695,6 +1725,8 @@ function setupEventListeners() {
  * dashboard logic above. */
 
 let deferredInstallPrompt = null;
+const INSTALL_DISMISS_KEY = 'giftlio_install_dismissed_at';
+const INSTALL_DISMISS_DAYS = 14;
 
 function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
@@ -1706,31 +1738,75 @@ function registerServiceWorker() {
     });
 }
 
+function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function isIos() {
+    return /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !window.MSStream;
+}
+
+function wasInstallBannerRecentlyDismissed() {
+    const dismissedAt = localStorage.getItem(INSTALL_DISMISS_KEY);
+    if (!dismissedAt) return false;
+    const daysSince = (Date.now() - Number(dismissedAt)) / (1000 * 60 * 60 * 24);
+    return daysSince < INSTALL_DISMISS_DAYS;
+}
+
+function showInstallBanner() {
+    if (isStandalone() || wasInstallBannerRecentlyDismissed()) return;
+    document.getElementById('installBanner')?.classList.remove('hidden');
+}
+
+function dismissInstallBanner() {
+    localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now()));
+    document.getElementById('installBanner')?.classList.add('hidden');
+}
+
 function setupPWAInstall() {
-    const installBtn = document.getElementById('installBtn');
-    if (!installBtn) return;
+    const banner = document.getElementById('installBanner');
+    if (!banner) return;
+    if (isStandalone() || wasInstallBannerRecentlyDismissed()) return;
+
+    if (isIos()) {
+        // iOS Safari never fires beforeinstallprompt -- Apple restriction,
+        // no code workaround exists. It's always eligible for manual
+        // "Add to Home Screen" though, so we can show the banner right away.
+        const sub = document.getElementById('installBannerSub');
+        if (sub) sub.textContent = 'Tap Install for quick setup instructions';
+        showInstallBanner();
+        return;
+    }
 
     window.addEventListener('beforeinstallprompt', (event) => {
-        // Prevent the default mini-infobar and show our own branded button instead.
         event.preventDefault();
         deferredInstallPrompt = event;
-        installBtn.classList.remove('hidden');
+        showInstallBanner();
     });
 
     window.addEventListener('appinstalled', () => {
         deferredInstallPrompt = null;
-        installBtn.classList.add('hidden');
+        dismissInstallBanner();
     });
 }
 
 async function promptInstall() {
-    const installBtn = document.getElementById('installBtn');
-    if (!deferredInstallPrompt) return;
+    if (isIos()) {
+        document.getElementById('iosInstallOverlay')?.classList.remove('hidden');
+        document.getElementById('iosInstallModal')?.classList.remove('hidden');
+        return;
+    }
 
+    if (!deferredInstallPrompt) return;
     deferredInstallPrompt.prompt();
     await deferredInstallPrompt.userChoice;
     deferredInstallPrompt = null;
-    installBtn?.classList.add('hidden');
+    document.getElementById('installBanner')?.classList.add('hidden');
+}
+
+function closeIosInstallModal() {
+    document.getElementById('iosInstallOverlay')?.classList.add('hidden');
+    document.getElementById('iosInstallModal')?.classList.add('hidden');
 }
 
 function setupOfflineDetection() {
