@@ -27,6 +27,9 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -35,10 +38,10 @@
     <nav class="navbar">
         <div class="nav-container">
             <a href="#" class="logo" onclick="router('home')">
-                <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#D9B24C"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#D9B24C" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#D9B24C"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#D9B24C"/></svg></span>
+                <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#1F4D3A"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#1F4D3A" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#1F4D3A"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#1F4D3A"/></svg></span>
                 <span class="logo-word">Giftlio</span>
             </a>
-            <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
+            <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button>
             <div class="nav-links" id="navLinks">
                 <a href="#" onclick="router('home')">Home</a>
                 <a href="#" onclick="router('browse')">Browse Cards</a>
@@ -52,7 +55,7 @@
             <div class="nav-user hidden" id="navUser">
                 <span id="userNameDisplay"></span>
                 <div class="dropdown">
-                    <button class="dropdown-btn" onclick="toggleDropdown()">▼</button>
+                    <button class="dropdown-btn" onclick="toggleDropdown()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
                     <div class="dropdown-content" id="dropdownContent">
                         <a href="#" onclick="router('orders')">My Orders</a>
                         <a href="#" onclick="router('seller-dashboard')">Seller Dashboard</a>
@@ -98,7 +101,7 @@
     <!-- PWA install banner (shown/configured by app.js based on platform + beforeinstallprompt) -->
     <div class="install-banner hidden" id="installBanner" role="complementary" aria-label="Install app">
         <div class="install-banner-content">
-            <span class="install-banner-icon" aria-hidden="true">📲</span>
+            <span class="install-banner-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
             <div class="install-banner-text">
                 <p class="install-banner-title" id="installBannerTitle">Install Giftlio</p>
                 <p class="install-banner-sub" id="installBannerSub">Add it to your home screen for the full app experience</p>
@@ -116,15 +119,15 @@
             <h2 style="color: var(--navy); margin-bottom: 16px;">Install Giftlio on iPhone</h2>
             <div style="text-align: left; display: grid; gap: 16px; margin-top: 20px;">
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">1️⃣</span>
-                    <p>Tap the <strong>Share</strong> button <span aria-hidden="true">⬆️</span> in Safari's toolbar</p>
+                    <span style="font-size: 24px;">1⃣</span>
+                    <p>Tap the <strong>Share</strong> button <span aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/></svg></span> in Safari's toolbar</p>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">2️⃣</span>
+                    <span style="font-size: 24px;">2⃣</span>
                     <p>Scroll down and tap <strong>"Add to Home Screen"</strong></p>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">3️⃣</span>
+                    <span style="font-size: 24px;">3⃣</span>
                     <p>Tap <strong>"Add"</strong> in the top right</p>
                 </div>
             </div>
@@ -147,10 +150,10 @@
             <div class="hero">
                 <div class="hero-content">
                     <h1>Buy Discounted Gift Cards</h1>
-                    <p class="hero-subtitle">Trusted by Kiwis across Auckland — save up to 25% on your favourite NZ brands</p>
+                    <p class="hero-subtitle">NZ owned and operated — save up to 25% on your favourite NZ brands</p>
                     <div class="hero-badges">
                         <span class="hero-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:4px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg>Verified sellers</span>
-                        <span class="hero-badge">🔒 Secure Stripe payment</span>
+                        <span class="hero-badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> Secure Stripe payment</span>
                     </div>
                     <div class="hero-buttons">
                         <button class="btn btn-gold btn-large" onclick="router('browse')">Browse Cards</button>
@@ -162,15 +165,15 @@
             <div class="container">
                 <div class="trust-strip">
                     <div class="trust-strip-item">
-                        <span class="trust-strip-icon">📍</span>
+                        <span class="trust-strip-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.5 7-11a7 7 0 1 0-14 0c0 4.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
                         <p>NZ owned + operated</p>
                     </div>
                     <div class="trust-strip-item">
-                        <span class="trust-strip-icon">✅</span>
+                        <span class="trust-strip-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg></span>
                         <p>Manually verified</p>
                     </div>
                     <div class="trust-strip-item">
-                        <span class="trust-strip-icon">⏱️</span>
+                        <span class="trust-strip-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
                         <p>24hr delivery</p>
                     </div>
                 </div>
@@ -202,17 +205,17 @@
                     <h2>How Giftlio Works</h2>
                     <div class="steps-grid">
                         <div class="step-card">
-                            <div class="step-icon">🔍</div>
+                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
                             <h3>Browse</h3>
                             <p>Search hundreds of discounted gift cards from top NZ retailers</p>
                         </div>
                         <div class="step-card">
-                            <div class="step-icon">💳</div>
+                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19"/><path d="M6 14.5h4"/></svg></div>
                             <h3>Buy</h3>
                             <p>Purchase securely with instant digital delivery</p>
                         </div>
                         <div class="step-card">
-                            <div class="step-icon">💰</div>
+                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
                             <h3>Save</h3>
                             <p>Get up to 25% off face value on every card</p>
                         </div>
@@ -223,23 +226,64 @@
                     <h2>Why Kiwis Trust Giftlio</h2>
                     <div class="trust-grid">
                         <div class="trust-item">
-                            <span class="check-icon">✓</span>
+                            <span class="check-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
                             <p>Every card manually verified before delivery</p>
                         </div>
                         <div class="trust-item">
-                            <span class="check-icon">✓</span>
+                            <span class="check-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
                             <p>Secure Stripe payment processing</p>
                         </div>
                         <div class="trust-item">
-                            <span class="check-icon">✓</span>
+                            <span class="check-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
                             <p>NZ-based customer support</p>
                         </div>
                     </div>
                 </div>
 
-                <div class="social-proof-strip">
-                    <span class="social-proof-stars">⭐⭐⭐⭐⭐</span>
-                    <p>4.8 from 200+ Kiwi buyers this month</p>
+                <div class="section safe-section">
+                    <h2>Why is this safe?</h2>
+                    <div class="safe-accordion" id="safeAccordion">
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                                <span class="safe-q-text">Manual verification</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">Every gift card is checked by a real person against the retailer's own balance-checking tool before it's ever listed — never just taken on the seller's word.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+                                <span class="safe-q-text">Secure payments</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">All payments run through Stripe, the same PCI-compliant infrastructure used by major NZ retailers. Giftlio never sees or stores your card number.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V5l7-3z"/></svg></span>
+                                <span class="safe-q-text">NZ consumer protections</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act — the same protections that apply to any NZ retailer.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                                <span class="safe-q-text">Personal support</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">A real person reads every message sent to support@giftlio.co.nz — not an automated chatbot maze.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+                                <span class="safe-q-text">Transparent process</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">You can see exactly what's happening to your card at every step — from submission to payout — in your seller dashboard, in real time.</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="cta-banner">
@@ -273,9 +317,10 @@
                 <p class="results-count" id="resultsCount"></p>
                 <div class="listings-grid" id="browseGrid"></div>
                 <div class="empty-state hidden" id="browseEmpty">
-                    <div class="empty-icon">🔍</div>
-                    <p>No cards found</p>
-                    <p class="empty-sub">Try adjusting your search or filters</p>
+                    <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+                    <p class="empty-title">No gift cards found</p>
+                    <p class="empty-sub">Try a different search term, or clear your filters to see everything on offer</p>
+                    <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
                 </div>
             </div>
         </section>
@@ -283,7 +328,7 @@
         <!-- LISTING DETAIL SECTION -->
         <section id="listing-detail-section" class="page-section hidden">
             <div class="container">
-                <button class="btn btn-back" onclick="router('browse')">← Back to Browse</button>
+                <button class="btn btn-back" onclick="router('browse')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Browse</button>
                 <div class="detail-layout" id="detailLayout"></div>
             </div>
         </section>
@@ -337,7 +382,7 @@
                             <div class="payment-box">
                                 <h3>Payment Method</h3>
                                 <div class="stripe-placeholder">
-                                    <p>🔒 Secure payment via Stripe</p>
+                                    <p><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Secure payment via Stripe</p>
                                     <p class="stripe-note">You'll be redirected to Stripe's secure payment page to enter your card details. Giftlio never sees or stores your card number.</p>
                                 </div>
                                 <div class="checkout-trust-row">
@@ -357,7 +402,7 @@
                         <!-- Step 4: Confirmation -->
                         <div class="checkout-step hidden" id="checkoutStep4">
                             <div class="confirmation-box">
-                                <div class="checkmark">✓</div>
+                                <div class="checkmark"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
                                 <h2>Thank you for your purchase!</h2>
                                 <p class="order-id" id="confirmOrderId"></p>
                                 <div class="confirm-summary" id="confirmSummary"></div>
@@ -485,8 +530,8 @@
                 <p class="section-subtitle">Track your gift card purchases</p>
                 <div class="orders-table-wrapper" id="ordersTable"></div>
                 <div class="empty-state hidden" id="ordersEmpty">
-                    <div class="empty-icon">🛍️</div>
-                    <p>No orders yet</p>
+                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2l-2 4v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4"/><path d="M4 6h16"/><path d="M9 10a3 3 0 0 0 6 0"/></svg></div>
+                    <p class="empty-title">No orders yet</p>
                     <p class="empty-sub">Browse cards to get started!</p>
                     <button class="btn btn-primary" onclick="router('browse')">Browse Cards</button>
                 </div>
@@ -577,7 +622,7 @@
                             <div class="form-group">
                                 <label>Receipt Upload</label>
                                 <div class="file-upload" onclick="document.getElementById('subReceipt').click()">
-                                    <p>📎 Click to upload receipt</p>
+                                    <p><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>Click to upload receipt</p>
                                     <p class="file-hint">JPG, PNG, PDF up to 5MB</p>
                                 </div>
                                 <input type="file" id="subReceipt" hidden accept=".jpg,.jpeg,.png,.pdf">
@@ -599,8 +644,8 @@
                         <h2>My Submissions</h2>
                         <div class="table-wrapper" id="submissionsTable"></div>
                         <div class="empty-state hidden" id="submissionsEmpty">
-                            <div class="empty-icon">📋</div>
-                            <p>No submissions yet</p>
+                            <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 11h6"/><path d="M9 15h6"/></svg></div>
+                            <p class="empty-title">No submissions yet</p>
                             <p class="empty-sub">Sell your first gift card and turn it into cash</p>
                             <button class="btn btn-primary" onclick="showSellerTab('submit', event)">Submit a Card</button>
                         </div>
@@ -664,7 +709,7 @@
                     <h2>Pending Submissions</h2>
                     <div class="table-wrapper" id="pendingTable"></div>
                     <div class="empty-state hidden" id="pendingEmpty">
-                        <div class="empty-icon">✓</div>
+                        <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
                         <p>No pending submissions</p>
                         <p class="empty-sub">All caught up!</p>
                     </div>
@@ -675,7 +720,7 @@
                     <p class="section-subtitle">Verify the card balance, then click Deliver to email the buyer their gift card details.</p>
                     <div class="table-wrapper" id="pendingDeliveryTable"></div>
                     <div class="empty-state hidden" id="pendingDeliveryEmpty">
-                        <div class="empty-icon">✓</div>
+                        <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
                         <p>No orders awaiting delivery</p>
                         <p class="empty-sub">All caught up!</p>
                     </div>
@@ -696,7 +741,7 @@
         <!-- PRIVACY POLICY -->
         <section id="privacy-section" class="page-section hidden">
             <div class="container legal-page">
-                <button class="btn btn-back" onclick="router('home')">← Back to Home</button>
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
                 <h1>Privacy Policy</h1>
                 <p class="legal-date">Last updated: July 2026</p>
 
@@ -746,7 +791,7 @@
         <!-- TERMS -->
         <section id="terms-section" class="page-section hidden">
             <div class="container legal-page">
-                <button class="btn btn-back" onclick="router('home')">← Back to Home</button>
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
                 <h1>Terms and Conditions</h1>
                 <p class="legal-date">Last updated: July 2026</p>
 
@@ -851,7 +896,7 @@
     <footer class="footer">
         <div class="container footer-content">
             <div class="footer-brand">
-                <span class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#D9B24C"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#D9B24C" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#D9B24C"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#D9B24C"/></svg></span><span class="logo-word">Giftlio</span></span>
+                <span class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#1F4D3A"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#1F4D3A" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#1F4D3A"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#1F4D3A"/></svg></span><span class="logo-word">Giftlio</span></span>
                 <p>New Zealand's trusted gift card marketplace.</p>
             </div>
             <div class="footer-links">
@@ -881,6 +926,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
     <script src="env-config.js" defer></script>
     <script src="supabase-client.js" defer></script>
+    <div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
+
     <script src="app.js" defer></script>
 </body>
 </html>
