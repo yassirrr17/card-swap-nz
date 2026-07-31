@@ -1,10 +1,10 @@
 /* ===== CSS VARIABLES ===== */
 :root {
-    --navy: #1a237e;
-    --navy-dark: #0d1245;
-    --navy-light: #283593;
-    --gold: #ffd700;
-    --gold-dark: #e6c200;
+    --navy: #10142E;
+    --navy-dark: #0B0E24;
+    --navy-light: #171C3F;
+    --gold: #D9B24C;
+    --gold-dark: #A6821E;
     --white: #ffffff;
     --gray-50: #f8f9fa;
     --gray-100: #f1f3f4;
@@ -126,11 +126,87 @@ a:hover {
     font-weight: 700;
     color: var(--gold);
     text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .logo:hover {
     text-decoration: none;
     opacity: 0.9;
+}
+
+.logo-mark {
+    width: 28px;
+    height: 28px;
+    background: var(--navy-dark);
+    border: 1px solid rgba(217,178,76,0.3);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.logo-mark svg {
+    width: 15px;
+    height: 15px;
+}
+
+.logo-word {
+    line-height: 1;
+}
+
+/* ===== Bottom Tab Navigation (mobile only) ===== */
+.bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--white);
+    border-top: 1px solid var(--gray-200);
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+    z-index: 900;
+}
+
+.bottom-nav-inner {
+    display: flex;
+}
+
+.bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    color: var(--gray-500);
+    padding: 4px 0;
+}
+
+.bottom-nav-item svg {
+    width: 20px;
+    height: 20px;
+}
+
+.bottom-nav-item span {
+    font-size: 9.5px;
+    font-weight: 700;
+}
+
+.bottom-nav-item.active {
+    color: var(--navy);
+}
+
+@media (max-width: 768px) {
+    .bottom-nav { display: block; }
+    .main-content { padding-bottom: 74px; }
+    .navbar .nav-links,
+    .navbar .mobile-menu-btn { display: none; }
 }
 
 .nav-links {
@@ -577,6 +653,29 @@ a:hover {
     color: var(--gray-800);
 }
 
+/* ===== SELL CALLOUT (homepage) ===== */
+.sell-callout {
+    background: var(--navy);
+    border-radius: var(--radius-xl);
+    padding: 32px 40px;
+    margin: 48px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.sell-callout-text h2 {
+    color: var(--white);
+    margin-bottom: 6px;
+}
+
+.sell-callout-text p {
+    color: rgba(255,255,255,0.7);
+    margin: 0;
+}
+
 /* ===== CTA BANNER ===== */
 .cta-banner {
     background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
@@ -614,7 +713,7 @@ a:hover {
 .search-input:focus {
     outline: none;
     border-color: var(--navy);
-    box-shadow: 0 0 0 3px rgba(26,35,126,0.1);
+    box-shadow: 0 0 0 3px rgba(16,20,46,0.12);
 }
 
 .filter-select {
@@ -735,19 +834,23 @@ a:hover {
     display: flex;
     justify-content: space-between;
     margin-bottom: 40px;
-    padding-bottom: 20px;
-    border-bottom: 2px solid var(--gray-200);
+    gap: 6px;
 }
 
 .step {
-    font-size: 13px;
-    font-weight: 600;
+    flex: 1;
+    text-align: center;
+    font-size: 12.5px;
+    font-weight: 700;
     color: var(--gray-400);
-    padding: 0 8px;
+    padding: 0 4px 14px;
+    border-bottom: 3px solid var(--gray-200);
+    transition: var(--transition);
 }
 
 .step.active {
     color: var(--navy);
+    border-bottom-color: var(--gold);
 }
 
 .order-summary {
@@ -802,7 +905,7 @@ a:hover {
 .form-group select:focus {
     outline: none;
     border-color: var(--navy);
-    box-shadow: 0 0 0 3px rgba(26,35,126,0.1);
+    box-shadow: 0 0 0 3px rgba(16,20,46,0.12);
 }
 
 .form-row {
@@ -932,6 +1035,22 @@ a:hover {
     margin-top: 12px;
 }
 
+.checkout-trust-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 16px 0 4px;
+}
+
+.checkout-trust-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--navy);
+}
+
 /* ===== CONFIRMATION ===== */
 .confirmation-box {
     text-align: center;
@@ -941,8 +1060,8 @@ a:hover {
 .checkmark {
     width: 80px;
     height: 80px;
-    background: var(--green);
-    color: var(--white);
+    background: var(--navy);
+    color: var(--gold);
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -1384,7 +1503,21 @@ tr:hover td {
 .footer-brand .logo {
     font-size: 24px;
     margin-bottom: 8px;
-    display: block;
+    display: flex;
+    justify-content: center;
+}
+
+.footer-brand .logo .logo-mark {
+    background: var(--gold);
+}
+
+.footer-brand .logo .logo-mark svg rect[fill="#D9B24C"],
+.footer-brand .logo .logo-mark svg path[fill="#D9B24C"] {
+    fill: var(--navy-dark);
+}
+
+.footer-brand .logo .logo-mark svg rect[fill="#10142E"] {
+    fill: var(--gold);
 }
 
 .footer-brand p {
@@ -1675,4 +1808,96 @@ tr:hover td {
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+/* ===== OFFLINE BANNER ===== */
+.offline-banner {
+    position: fixed;
+    top: calc(var(--navbar-height) + var(--safe-top));
+    left: 0;
+    right: 0;
+    background: var(--yellow-light);
+    color: #7a5b00;
+    border-bottom: 1px solid var(--yellow);
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    z-index: 998;
+}
+
+/* ===== INSTALL BANNER ===== */
+.install-banner {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + var(--safe-bottom));
+    z-index: 1500;
+    background: var(--navy);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 420px;
+    margin: 0 auto;
+}
+
+.install-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 12px 12px 16px;
+}
+
+.install-banner-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.install-banner-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.install-banner-title {
+    color: var(--white);
+    font-weight: 700;
+    font-size: 14px;
+    margin: 0;
+}
+
+.install-banner-sub {
+    color: rgba(255,255,255,0.75);
+    font-size: 12px;
+    margin: 2px 0 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.install-banner-action {
+    flex-shrink: 0;
+    padding: 8px 16px;
+    font-size: 13px;
+    min-height: var(--tap-target);
+}
+
+.install-banner-close {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    font-size: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-width: 32px;
+    min-height: 32px;
+    touch-action: manipulation;
+}
+
+.install-banner-close:hover {
+    color: var(--white);
+}
+
+@media (max-width: 480px) {
+    .install-banner-sub {
+        display: none;
+    }
 }
