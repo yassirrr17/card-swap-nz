@@ -2817,13 +2817,13 @@ tr:hover td {
 .sale-mode-options {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
-.sale-mode-option {
+.sale-mode-options .sale-mode-option {
     display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    align-items: center;
+    gap: 12px;
     border: 1.5px solid var(--gray-300);
     border-radius: var(--radius-lg);
     padding: 14px 16px;
