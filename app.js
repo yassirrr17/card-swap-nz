@@ -2950,6 +2950,20 @@ function setupPWAInstall() {
         deferredInstallPrompt = null;
         dismissInstallBanner();
     });
+
+    // Not every Android browser fires beforeinstallprompt. Samsung Internet
+    // (version 27+) deliberately dropped support for it in favour of its
+    // own install flow, and Firefox for Android never supported it at all
+    // -- without this fallback, those users would see no banner at all,
+    // ever, with zero indication an install is even possible. If the
+    // native event hasn't fired within a few seconds, show the banner
+    // anyway with manual instructions instead of silently giving up.
+    setTimeout(() => {
+        if (deferredInstallPrompt || isStandalone() || wasInstallBannerRecentlyDismissed()) return;
+        const sub = document.getElementById('installBannerSub');
+        if (sub) sub.textContent = 'Tap Install for quick setup instructions';
+        showInstallBanner();
+    }, 2500);
 }
 
 async function promptInstall() {
@@ -2959,11 +2973,25 @@ async function promptInstall() {
         return;
     }
 
-    if (!deferredInstallPrompt) return;
+    if (!deferredInstallPrompt) {
+        // No native prompt was ever captured -- this browser doesn't
+        // support beforeinstallprompt (Samsung Internet 27+, Firefox for
+        // Android, etc.). Show manual instructions instead of doing
+        // nothing.
+        document.getElementById('androidInstallOverlay')?.classList.remove('hidden');
+        document.getElementById('androidInstallModal')?.classList.remove('hidden');
+        return;
+    }
+
     deferredInstallPrompt.prompt();
     await deferredInstallPrompt.userChoice;
     deferredInstallPrompt = null;
     document.getElementById('installBanner')?.classList.add('hidden');
+}
+
+function closeAndroidInstallModal() {
+    document.getElementById('androidInstallOverlay')?.classList.add('hidden');
+    document.getElementById('androidInstallModal')?.classList.add('hidden');
 }
 
 function closeIosInstallModal() {
