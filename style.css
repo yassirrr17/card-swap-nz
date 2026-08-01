@@ -2982,3 +2982,68 @@ tr:hover td {
 .link-btn:hover {
     color: var(--gold);
 }
+
+/* ===== ADMIN SUB-TABS (Instant Sell vs Marketplace review queues) ===== */
+.admin-subtabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--gray-200);
+    margin-bottom: 20px;
+}
+
+.admin-subtab {
+    background: none;
+    border: none;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gray-600);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-family: inherit;
+}
+
+.admin-subtab:hover {
+    color: var(--navy);
+}
+
+.admin-subtab.active {
+    color: var(--navy);
+    border-bottom-color: var(--gold);
+}
+
+/* ===== COUNTER-OFFER PANEL (buyer-facing, Marketplace listings) ===== */
+.offer-panel {
+    margin-top: 12px;
+    padding: 14px;
+    background: var(--gray-50);
+    border-radius: var(--radius-lg);
+}
+
+.offer-form {
+    margin-top: 12px;
+}
+
+.offer-form label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin-bottom: 6px;
+}
+
+.offer-form input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: 15px;
+    font-family: inherit;
+}
+
+.offer-status-box p {
+    font-size: 13.5px;
+    color: var(--gray-800);
+    line-height: 1.6;
+}
