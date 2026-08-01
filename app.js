@@ -2,6 +2,7 @@ const DEFAULT_CHECKOUT_STEP = 1;
 const MAX_CHECKOUT_STEP = 4;
 const DEFAULT_LISTING_PRICE_FACTOR = 0.9;
 const SELLER_OFFER_RATE = 0.85;
+const MARKETPLACE_COMMISSION_RATE = 0.10;
 
 const TOAST_ICONS = {
     success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
@@ -425,7 +426,9 @@ function listingRowToView(row) {
         createdAt: row.created_at,
         sellerId: row.seller_id,
         submissionId: row.submission_id,
-        cardVaultId: row.card_vault_id
+        cardVaultId: row.card_vault_id,
+        saleMode: row.sale_mode || 'instant',
+        sellerPayoutAmount: row.seller_payout_amount !== null && row.seller_payout_amount !== undefined ? Number(row.seller_payout_amount) : null
     };
 }
 
@@ -443,6 +446,8 @@ function submissionRowToView(row) {
         pin: row.pin,
         receiptFilename: row.receipt_filename || '',
         offerAmount: Number(row.offer_amount),
+        saleMode: row.sale_mode || 'instant',
+        sellerSetPrice: row.seller_set_price !== null && row.seller_set_price !== undefined ? Number(row.seller_set_price) : null,
         status: STATUS_MAP.submission[row.status] || row.status,
         statusKey: row.status,
         adminNotes: row.admin_notes || '',
@@ -664,6 +669,56 @@ async function handleLogin() {
         });
     } catch (error) {
         setFieldError('loginPassword', 'loginPasswordError', 'Invalid email or password');
+    }
+}
+
+async function handleContactSubmit() {
+    clearErrors();
+
+    const name = document.getElementById('contactName').value.trim();
+    const email = document.getElementById('contactEmail').value.trim();
+    const subject = document.getElementById('contactSubject').value;
+    const message = document.getElementById('contactMessage').value.trim();
+
+    let hasError = false;
+    if (name.length < 2) {
+        setFieldError('contactName', 'contactNameError', 'Enter your full name');
+        hasError = true;
+    }
+    if (!isValidEmail(email)) {
+        setFieldError('contactEmail', 'contactEmailError', 'Enter a valid email address');
+        hasError = true;
+    }
+    if (!subject) {
+        setFieldError('contactSubject', 'contactSubjectError', 'Select a subject');
+        hasError = true;
+    }
+    if (message.length < 10) {
+        setFieldError('contactMessage', 'contactMessageError', 'Tell us a little more (at least 10 characters)');
+        hasError = true;
+    }
+    if (hasError) return;
+
+    const submitBtn = document.getElementById('contactSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending...';
+
+    try {
+        const response = await fetch('/api/contact-form', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, subject, message })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to send your message.');
+
+        showToast('success', 'Your message has been sent — we will reply within 24 hours.');
+        document.getElementById('contactForm').reset();
+    } catch (error) {
+        showError(error, 'Unable to send your message. Please email support@giftlio.co.nz directly.');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Send Message';
     }
 }
 
@@ -1592,12 +1647,19 @@ async function renderSellerDashboard() {
 
             const totalSubmitted = submissions.length;
             const cardsSold = listings.filter((l) => l.status === 'sold').length;
-            const totalEarnings = submissions
-                .filter((s) => ['Listed', 'Sold', 'Approved'].includes(s.status))
+
+            const instantEarned = submissions
+                .filter((s) => s.saleMode === 'instant' && ['Listed', 'Sold', 'Approved'].includes(s.status))
                 .reduce((sum, s) => sum + (s.offerAmount || 0), 0);
-            const pendingPayout = submissions
-                .filter((s) => ['Listed', 'Approved'].includes(s.status))
+            const marketplaceEarned = listings
+                .filter((l) => l.saleMode === 'marketplace' && l.status === 'sold')
+                .reduce((sum, l) => sum + (l.sellerPayoutAmount || 0), 0);
+            const totalEarnings = instantEarned + marketplaceEarned;
+
+            const instantPending = submissions
+                .filter((s) => s.saleMode === 'instant' && ['Listed', 'Approved'].includes(s.status))
                 .reduce((sum, s) => sum + (s.offerAmount || 0), 0);
+            const pendingPayout = instantPending;
 
             document.getElementById('totalSubmitted').textContent = totalSubmitted;
             document.getElementById('cardsSold').textContent = cardsSold;
@@ -1629,10 +1691,36 @@ async function renderSellerDashboard() {
     }
 }
 
+function getSelectedSaleMode() {
+    const checked = document.querySelector('input[name="saleMode"]:checked');
+    return checked ? checked.value : 'instant';
+}
+
+function handleSaleModeChange() {
+    const mode = getSelectedSaleMode();
+    document.querySelectorAll('.sale-mode-option').forEach((opt) => {
+        opt.classList.toggle('selected', opt.querySelector('input').value === mode);
+    });
+    document.getElementById('sellerPriceGroup').classList.toggle('hidden', mode !== 'marketplace');
+    updateOffer();
+}
+
 function updateOffer() {
-    const value = parseFloat(document.getElementById('subValue').value) || 0;
-    const offer = value * SELLER_OFFER_RATE;
-    document.getElementById('offerAmount').textContent = formatCurrency(offer);
+    const mode = getSelectedSaleMode();
+    const offerLabel = document.getElementById('offerLabel');
+    const offerNote = document.getElementById('offerNote');
+
+    if (mode === 'marketplace') {
+        const askingPrice = parseFloat(document.getElementById('subSellerPrice').value) || 0;
+        const payout = askingPrice * (1 - MARKETPLACE_COMMISSION_RATE);
+        offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">${formatCurrency(payout)}</strong>`;
+        offerNote.textContent = 'Paid out once a buyer purchases your card, after 10% commission';
+    } else {
+        const value = parseFloat(document.getElementById('subValue').value) || 0;
+        const offer = value * SELLER_OFFER_RATE;
+        offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">${formatCurrency(offer)}</strong>`;
+        offerNote.textContent = 'Final offer may vary after verification, paid once approved';
+    }
 }
 
 async function handleSubmission() {
@@ -1650,6 +1738,8 @@ async function handleSubmission() {
     const cardNum = document.getElementById('subCardNum').value;
     const pin = document.getElementById('subPin').value;
     const terms = document.getElementById('subTerms').checked;
+    const saleMode = getSelectedSaleMode();
+    const sellerSetPrice = saleMode === 'marketplace' ? parseFloat(document.getElementById('subSellerPrice').value) : null;
 
     let hasError = false;
     if (!brand) {
@@ -1668,6 +1758,14 @@ async function handleSubmission() {
         setFieldError('subBalance', 'subBalanceError', 'Balance can\'t be more than the card\'s original value');
         hasError = true;
     }
+    if (saleMode === 'marketplace' && (!sellerSetPrice || sellerSetPrice <= 0)) {
+        setFieldError('subSellerPrice', 'subSellerPriceError', 'Enter your asking price');
+        hasError = true;
+    }
+    if (saleMode === 'marketplace' && sellerSetPrice > balance) {
+        setFieldError('subSellerPrice', 'subSellerPriceError', 'Asking price can\'t be more than the card\'s balance');
+        hasError = true;
+    }
     if (!expiry) {
         setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date');
         hasError = true;
@@ -1683,6 +1781,7 @@ async function handleSubmission() {
     if (hasError) return;
 
     const submissionPublicId = generatePublicId('SUB');
+    const offerAmount = saleMode === 'marketplace' ? sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE) : value * SELLER_OFFER_RATE;
 
     try {
         await withLoading(async () => {
@@ -1697,7 +1796,9 @@ async function handleSubmission() {
                 card_number: cardNum,
                 pin: pin || null,
                 receipt_filename: document.getElementById('fileName').textContent || null,
-                offer_amount: value * SELLER_OFFER_RATE,
+                offer_amount: offerAmount,
+                sale_mode: saleMode,
+                seller_set_price: sellerSetPrice,
                 status: 'pending_review'
             });
 
@@ -1707,7 +1808,7 @@ async function handleSubmission() {
         showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
-        document.getElementById('offerAmount').textContent = '$0.00';
+        handleSaleModeChange();
         showSellerTab('submissions');
     } catch (error) {
         showError(error, 'Unable to submit your gift card.');
@@ -1775,24 +1876,36 @@ function renderSubmissionCard(s, listingStatus) {
     const isApproved = s.status === 'Approved' || s.status === 'Listed' || s.status === 'Sold';
     const isListed = isApproved && Boolean(listingStatus);
     const isSold = listingStatus === 'sold';
+    const isMarketplace = s.saleMode === 'marketplace';
 
-    // Five real stages, submitted through payout sent -- but ordered to
-    // match what's actually true for Instant Sell: payout happens at
-    // approval, not after a later resale. "Listed" and "Sold" are shown
-    // afterward as transparency into what Giftlio does with the card next,
-    // not as conditions the seller's payout depends on.
-    const stages = [
-        { key: 'submitted', label: 'Submitted', done: true },
-        { key: 'verified', label: 'Being Verified', done: !isPending },
-        { key: 'payout', label: 'Payout Sent', done: isApproved },
-        { key: 'listed', label: 'Listed for Resale', done: isListed },
-        { key: 'sold', label: 'Sold to Buyer', done: isSold }
-    ];
+    // The stage ORDER genuinely differs by mode, not just the labels:
+    // Instant Sell pays at approval, before the card is even resold, so
+    // Payout Sent comes third. Marketplace only pays once a buyer actually
+    // purchases, so Payout Sent has to be last -- putting it third for
+    // marketplace would misrepresent when the seller's money actually moves.
+    const stages = isMarketplace
+        ? [
+              { key: 'submitted', label: 'Submitted', done: true },
+              { key: 'verified', label: 'Being Verified', done: !isPending },
+              { key: 'listed', label: 'Listed for Sale', done: isListed },
+              { key: 'sold', label: 'Sold to Buyer', done: isSold },
+              { key: 'payout', label: 'Payout Sent', done: isSold }
+          ]
+        : [
+              { key: 'submitted', label: 'Submitted', done: true },
+              { key: 'verified', label: 'Being Verified', done: !isPending },
+              { key: 'payout', label: 'Payout Sent', done: isApproved },
+              { key: 'listed', label: 'Listed for Resale', done: isListed },
+              { key: 'sold', label: 'Sold to Buyer', done: isSold }
+          ];
     const doneCount = stages.filter((st) => st.done).length;
     const currentIndex = stages.findIndex((st) => !st.done);
     const fillPercent = (Math.max(doneCount - 1, 0) / (stages.length - 1)) * 100;
 
     const badgeMap = { 'Pending Review': 'badge-yellow', Approved: 'badge-green', Rejected: 'badge-red', Listed: 'badge-blue', Sold: 'badge-green' };
+    const modeLabel = isMarketplace
+        ? `<span class="submission-mode-tag marketplace">Marketplace · 10% commission</span>`
+        : `<span class="submission-mode-tag instant">Instant Sell</span>`;
 
     if (isRejected) {
         return `
@@ -1815,6 +1928,7 @@ function renderSubmissionCard(s, listingStatus) {
                 <div>
                     <strong>${s.brand}</strong> — ${formatCurrency(s.faceValue)}
                     <span class="submission-id">#${s.id}</span>
+                    ${modeLabel}
                 </div>
                 <span class="badge ${badgeMap[s.status]}">${s.status}</span>
             </div>
@@ -1831,10 +1945,20 @@ function renderSubmissionCard(s, listingStatus) {
                     )
                     .join('')}
             </div>
-            <p class="submission-offer">Your offer: <strong>${formatCurrency(s.offerAmount)}</strong>${isApproved ? ' — paid out' : ' (paid once verified)'}</p>
+            <p class="submission-offer">${isMarketplace ? 'Your payout' : 'Your offer'}: <strong>${formatCurrency(s.offerAmount)}</strong>${
+        isMarketplace ? (isSold ? ' — paid out' : ' (paid once sold)') : isApproved ? ' — paid out' : ' (paid once verified)'
+    }</p>
             ${
                 listingStatus
-                    ? `<p class="submission-resale-note">${listingStatus === 'sold' ? 'Giftlio has since resold this card.' : 'This card is now listed for resale on Giftlio.'}</p>`
+                    ? `<p class="submission-resale-note">${
+                          isMarketplace
+                              ? listingStatus === 'sold'
+                                  ? 'A buyer has purchased this listing.'
+                                  : 'Your listing is live on the marketplace.'
+                              : listingStatus === 'sold'
+                              ? 'Giftlio has since resold this card.'
+                              : 'This card is now listed for resale on Giftlio.'
+                      }</p>`
                     : ''
             }
         </div>
@@ -1846,17 +1970,46 @@ async function renderSellerEarnings() {
 
     try {
         await withLoading(async () => {
-            const { data, error } = await supabaseClient.from('submissions').select('*').eq('seller_id', AppState.currentUser.id);
-            if (error) throw error;
+            const [{ data: subData, error: subError }, { data: listingData, error: listingError }] = await Promise.all([
+                supabaseClient.from('submissions').select('*').eq('seller_id', AppState.currentUser.id),
+                supabaseClient.from('listings').select('*').eq('seller_id', AppState.currentUser.id)
+            ]);
+            if (subError) throw subError;
+            if (listingError) throw listingError;
 
-            const submissions = (data || []).map(submissionRowToView);
-            const total = submissions
-                .filter((s) => ['Listed', 'Sold', 'Approved'].includes(s.status))
+            const submissions = (subData || []).map(submissionRowToView);
+            const listings = listingData || [];
+
+            // Instant Sell: earned as soon as approved (paid at that point).
+            const instantEarned = submissions
+                .filter((s) => s.saleMode === 'instant' && ['Listed', 'Sold', 'Approved'].includes(s.status))
                 .reduce((sum, s) => sum + (s.offerAmount || 0), 0);
+
+            // Marketplace: only actually earned once the linked listing sells --
+            // being listed is not the same as being paid.
+            const marketplaceEarned = listings
+                .filter((l) => l.sale_mode === 'marketplace' && l.status === 'sold')
+                .reduce((sum, l) => sum + Number(l.seller_payout_amount || 0), 0);
+
+            const marketplacePending = listings
+                .filter((l) => l.sale_mode === 'marketplace' && l.status === 'active')
+                .reduce((sum, l) => sum + Number(l.seller_payout_amount || 0), 0);
+
+            const total = instantEarned + marketplaceEarned;
 
             document.getElementById('earnTotal').textContent = formatCurrency(total);
             document.getElementById('earnAvailable').textContent = formatCurrency(total);
             document.getElementById('earnPaid').textContent = '$0.00';
+
+            const pendingNote = document.getElementById('earnPendingNote');
+            if (pendingNote) {
+                if (marketplacePending > 0) {
+                    pendingNote.textContent = `Plus ${formatCurrency(marketplacePending)} pending from marketplace listings not yet sold`;
+                    pendingNote.classList.remove('hidden');
+                } else {
+                    pendingNote.classList.add('hidden');
+                }
+            }
         });
     } catch (error) {
         showError(error, 'Unable to load earnings.');
@@ -1933,6 +2086,7 @@ async function renderAdmin() {
                                 <th>ID</th>
                                 <th>Seller</th>
                                 <th>Brand</th>
+                                <th>Mode</th>
                                 <th>Value</th>
                                 <th>Balance</th>
                                 <th>Expiry</th>
@@ -1948,6 +2102,11 @@ async function renderAdmin() {
                                     <td data-label="ID">${s.id}</td>
                                     <td data-label="Seller">${s.sellerName}</td>
                                     <td data-label="Brand">${s.brand}</td>
+                                    <td data-label="Mode">${
+                                        s.saleMode === 'marketplace'
+                                            ? `<span class="submission-mode-tag marketplace">Marketplace ($${s.sellerSetPrice != null ? s.sellerSetPrice.toFixed(2) : '?'})</span>`
+                                            : `<span class="submission-mode-tag instant">Instant</span>`
+                                    }</td>
                                     <td data-label="Value">${formatCurrency(s.faceValue)}</td>
                                     <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
                                     <td data-label="Expiry">${s.expiryDate}</td>
@@ -2096,8 +2255,19 @@ async function approveSubmission(submissionDbId) {
 
             const sub = submissionRowToView(subData);
             const listingFaceValue = sub.currentBalance;
-            const salePrice = Number((listingFaceValue * DEFAULT_LISTING_PRICE_FACTOR).toFixed(2));
+
+            // Instant Sell: Giftlio sets the resale price (existing behaviour,
+            // seller already paid via offer_amount at approval).
+            // Marketplace: the LISTING price is the seller's own asking price,
+            // not a Giftlio markup -- seller is paid seller_payout_amount only
+            // once a buyer actually purchases it.
+            const isMarketplace = sub.saleMode === 'marketplace';
+            const salePrice = isMarketplace
+                ? Number(sub.sellerSetPrice.toFixed(2))
+                : Number((listingFaceValue * DEFAULT_LISTING_PRICE_FACTOR).toFixed(2));
             const discount = Math.max(0, Math.min(100, Math.round((1 - salePrice / listingFaceValue) * 100)));
+            const commissionRate = isMarketplace ? MARKETPLACE_COMMISSION_RATE * 100 : null;
+            const sellerPayoutAmount = isMarketplace ? Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2)) : null;
 
             const { data: sellerProfile, error: sellerProfileError } = await supabaseClient
                 .from('profiles')
@@ -2138,7 +2308,10 @@ async function approveSubmission(submissionDbId) {
                 sale_price: salePrice,
                 discount,
                 status: 'active',
-                expiry_date: sub.expiryDate
+                expiry_date: sub.expiryDate,
+                sale_mode: sub.saleMode,
+                commission_rate: commissionRate,
+                seller_payout_amount: sellerPayoutAmount
             });
 
             if (listingError) throw listingError;
