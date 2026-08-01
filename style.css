@@ -2894,3 +2894,22 @@ tr:hover td {
     background: rgba(31,77,58,0.1);
     color: var(--gold);
 }
+
+/* ===== ZERO BALANCE WARNING (admin All Listings, safety-net display) ===== */
+.row-warning {
+    background: var(--red-light);
+}
+
+.zero-balance-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--red);
+    color: var(--white);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    white-space: nowrap;
+}
