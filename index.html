@@ -10,8 +10,20 @@
         combination with the safe-area-inset padding in style.css.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>Giftlio - Buy & Sell Gift Cards</title>
-    <meta name="description" content="New Zealand's trusted marketplace for buying and selling discounted gift cards. Save up to 25% on your favourite NZ brands.">
+    <title>Giftlio | New Zealand's Gift Card Marketplace</title>
+    <meta name="description" content="Giftlio is New Zealand's gift card marketplace. Buy verified gift cards at a discount, or sell your unused cards for cash. NZ owned and operated.">
+
+    <!-- Open Graph / social sharing -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Giftlio">
+    <meta property="og:title" content="Giftlio | New Zealand's Gift Card Marketplace">
+    <meta property="og:description" content="Buy verified gift cards at a discount, or sell your unused cards for cash. NZ owned and operated.">
+    <meta property="og:url" content="https://giftlio.co.nz/">
+    <meta property="og:image" content="https://giftlio.co.nz/icons/icon-512.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Giftlio | New Zealand's Gift Card Marketplace">
+    <meta name="twitter:description" content="Buy verified gift cards at a discount, or sell your unused cards for cash. NZ owned and operated.">
+    <meta name="twitter:image" content="https://giftlio.co.nz/icons/icon-512.png">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
@@ -27,39 +39,42 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- Navigation -->
-    <nav class="navbar">
+    <nav class="navbar" aria-label="Main navigation">
         <div class="nav-container">
-            <a href="#" class="logo" onclick="router('home')">
+            <a href="/" class="logo" onclick="event.preventDefault(); router('home')">
                 <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#1F4D3A"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#1F4D3A" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#1F4D3A"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#1F4D3A"/></svg></span>
                 <span class="logo-word">Giftlio</span>
             </a>
             <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Open menu"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button>
             <div class="nav-links" id="navLinks">
-                <a href="#" onclick="router('home')">Home</a>
-                <a href="#" onclick="router('browse')">Browse Cards</a>
-                <a href="#" onclick="router('sell')">Sell a Card</a>
-                <a href="#" onclick="router('how-it-works')">How It Works</a>
+                <a href="/" onclick="event.preventDefault(); router('home')">Home</a>
+                <a href="/browse" onclick="event.preventDefault(); goToBrowse()">Browse Cards</a>
+                <a href="/sell" onclick="event.preventDefault(); router('sell')">Sell a Card</a>
+                <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">How It Works</a>
+                <a href="/about" onclick="event.preventDefault(); router('about')">About</a>
+                <a href="/contact" onclick="event.preventDefault(); router('contact')">Contact</a>
+            </div>
+            <div class="nav-search-wrap">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                <input type="text" id="navSearchInput" class="nav-search-input" placeholder="Search gift cards..." aria-label="Search gift cards" onkeydown="if(event.key==='Enter'){handleNavSearch(this.value);}">
             </div>
             <div class="nav-auth" id="navAuth">
-                <a href="#" class="btn btn-outline" onclick="router('login')">Login</a>
-                <a href="#" class="btn btn-primary" onclick="router('signup')">Sign Up</a>
+                <a href="/login" class="btn btn-outline" onclick="event.preventDefault(); router('login')">Login</a>
+                <a href="/signup" class="btn btn-primary" onclick="event.preventDefault(); router('signup')">Sign Up</a>
             </div>
             <div class="nav-user hidden" id="navUser">
                 <span id="userNameDisplay"></span>
                 <div class="dropdown">
-                    <button class="dropdown-btn" onclick="toggleDropdown()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+                    <button class="dropdown-btn" aria-label="Toggle account menu" aria-haspopup="true" onclick="toggleDropdown()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
                     <div class="dropdown-content" id="dropdownContent">
-                        <a href="#" onclick="router('orders')">My Orders</a>
-                        <a href="#" onclick="router('seller-dashboard')">Seller Dashboard</a>
-                        <a href="#" onclick="router('admin')" id="adminLink" class="hidden">Admin Panel</a>
+                        <a href="/my-orders" onclick="event.preventDefault(); router('orders')">My Orders</a>
+                        <a href="/seller-dashboard" onclick="event.preventDefault(); router('seller-dashboard')">Seller Dashboard</a>
+                        <a href="/admin-dashboard" onclick="event.preventDefault(); router('admin')" id="adminLink" class="hidden">Admin Panel</a>
                         <a href="#" onclick="logout()">Logout</a>
                     </div>
                 </div>
@@ -68,13 +83,13 @@
     </nav>
 
     <!-- Bottom Tab Navigation (mobile only) -->
-    <nav class="bottom-nav" id="bottomNav">
+    <nav class="bottom-nav" id="bottomNav" aria-label="Mobile tab navigation">
         <div class="bottom-nav-inner">
             <button class="bottom-nav-item" data-page="home" onclick="router('home')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>
                 <span>Home</span>
             </button>
-            <button class="bottom-nav-item" data-page="browse" onclick="router('browse')">
+            <button class="bottom-nav-item" data-page="browse" onclick="goToBrowse()">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/><path d="M9 13a3 3 0 0 0 6 0"/></svg>
                 <span>Shop</span>
             </button>
@@ -114,7 +129,7 @@
     <!-- iOS-specific instructions modal (iOS Safari cannot be auto-prompted to install) -->
     <div class="modal-overlay hidden" id="iosInstallOverlay" onclick="closeIosInstallModal()"></div>
     <div class="modal hidden" id="iosInstallModal">
-        <button class="modal-close" onclick="closeIosInstallModal()">×</button>
+        <button class="modal-close" aria-label="Close" onclick="closeIosInstallModal()">×</button>
         <div style="text-align: center;">
             <h2 style="color: var(--navy); margin-bottom: 16px;">Install Giftlio on iPhone</h2>
             <div style="text-align: left; display: grid; gap: 16px; margin-top: 20px;">
@@ -136,10 +151,12 @@
 
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
-        <a href="#" onclick="router('home'); toggleMobileMenu()">Home</a>
-        <a href="#" onclick="router('browse'); toggleMobileMenu()">Browse Cards</a>
-        <a href="#" onclick="router('sell'); toggleMobileMenu()">Sell a Card</a>
-        <a href="#" onclick="router('how-it-works'); toggleMobileMenu()">How It Works</a>
+        <a href="/" onclick="event.preventDefault(); router('home'); toggleMobileMenu()">Home</a>
+        <a href="/browse" onclick="event.preventDefault(); goToBrowse(); toggleMobileMenu()">Browse Cards</a>
+        <a href="/sell" onclick="event.preventDefault(); router('sell'); toggleMobileMenu()">Sell a Card</a>
+        <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works'); toggleMobileMenu()">How It Works</a>
+        <a href="/about" onclick="event.preventDefault(); router('about'); toggleMobileMenu()">About</a>
+        <a href="/contact" onclick="event.preventDefault(); router('contact'); toggleMobileMenu()">Contact</a>
     </div>
 
     <!-- Main Content -->
@@ -156,7 +173,7 @@
                         <span class="hero-badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> Secure Stripe payment</span>
                     </div>
                     <div class="hero-buttons">
-                        <button class="btn btn-gold btn-large" onclick="router('browse')">Browse Cards</button>
+                        <button class="btn btn-gold btn-large" onclick="goToBrowse()">Browse Cards</button>
                         <button class="btn btn-outline btn-large" onclick="router('sell')">Sell Your Card</button>
                     </div>
                 </div>
@@ -196,30 +213,23 @@
                     <div class="listings-grid" id="recommendedGrid"></div>
                 </div>
 
+                <div class="section categories-section">
+                    <h2>Shop by Category</h2>
+                    <p class="section-lede">Not sure which shop you want yet? Start here.</p>
+                    <div class="category-grid" id="categoryGrid"></div>
+                </div>
+
                 <div class="section popular-brands">
                     <h2>Browse by Retailer</h2>
+                    <p class="section-lede">Already know the brand? Jump straight there.</p>
                     <div class="brands-grid" id="brandsGrid"></div>
                 </div>
 
-                <div class="section how-it-works">
-                    <h2>How Giftlio Works</h2>
-                    <div class="steps-grid">
-                        <div class="step-card">
-                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
-                            <h3>Browse</h3>
-                            <p>Search hundreds of discounted gift cards from top NZ retailers</p>
-                        </div>
-                        <div class="step-card">
-                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19"/><path d="M6 14.5h4"/></svg></div>
-                            <h3>Buy</h3>
-                            <p>Purchase securely with instant digital delivery</p>
-                        </div>
-                        <div class="step-card">
-                            <div class="step-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                            <h3>Save</h3>
-                            <p>Get up to 25% off face value on every card</p>
-                        </div>
-                    </div>
+                <div class="how-it-works-teaser">
+                    <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">
+                        See exactly how buying and selling works
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+                    </a>
                 </div>
 
                 <div class="section trust-section">
@@ -288,7 +298,7 @@
 
                 <div class="cta-banner">
                     <h2>Ready to save?</h2>
-                    <button class="btn btn-gold btn-large" onclick="router('browse')">Browse All Cards</button>
+                    <button class="btn btn-gold btn-large" onclick="goToBrowse()">Browse All Cards</button>
                 </div>
             </div>
         </section>
@@ -298,7 +308,7 @@
             <div class="container">
                 <h1>Browse Gift Cards</h1>
                 <div class="filter-bar">
-                    <input type="text" id="searchInput" class="search-input" placeholder="Search by brand name...">
+                    <input type="text" id="searchInput" class="search-input" placeholder="Search gift cards, e.g. brand, $20, or grocery...">
                     <select id="discountFilter" class="filter-select">
                         <option value="">All Discounts</option>
                         <option value="10">10% off or more</option>
@@ -314,6 +324,7 @@
                     </select>
                     <button class="btn btn-outline" onclick="clearFilters()">Clear Filters</button>
                 </div>
+                <div class="active-category-banner hidden" id="activeCategoryBanner"></div>
                 <p class="results-count" id="resultsCount"></p>
                 <div class="listings-grid" id="browseGrid"></div>
                 <div class="empty-state hidden" id="browseEmpty">
@@ -354,20 +365,20 @@
 
                         <!-- Step 2: Buyer Info -->
                         <div class="checkout-step hidden" id="checkoutStep2">
-                            <form id="buyerInfoForm" onsubmit="event.preventDefault(); goToCheckoutStep(3);">
+                            <form id="buyerInfoForm" novalidate onsubmit="event.preventDefault(); goToCheckoutStep(3);">
                                 <div class="form-group">
-                                    <label>Full Name *</label>
-                                    <input type="text" id="buyerName" required minlength="2">
+                                    <label for="buyerName">Full Name *</label>
+                                    <input type="text" id="buyerName">
                                     <span class="error-msg" id="nameError"></span>
                                 </div>
                                 <div class="form-group">
-                                    <label>Email Address *</label>
-                                    <input type="email" id="buyerEmail" required>
+                                    <label for="buyerEmail">Email Address *</label>
+                                    <input type="email" id="buyerEmail">
                                     <span class="error-msg" id="emailError"></span>
                                 </div>
                                 <div class="form-group">
-                                    <label>Phone Number *</label>
-                                    <input type="tel" id="buyerPhone" required minlength="8">
+                                    <label for="buyerPhone">Phone Number *</label>
+                                    <input type="tel" id="buyerPhone">
                                     <span class="error-msg" id="phoneError"></span>
                                 </div>
                                 <div class="form-actions">
@@ -390,7 +401,8 @@
                                     <span class="checkout-trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V5l7-3z"/></svg>Verified balance</span>
                                 </div>
                                 <div class="form-group checkbox-group">
-                                    <label><input type="checkbox" id="termsCheck" required> I agree to the <a href="#" onclick="router('terms')">Terms and Conditions</a> and <a href="#" onclick="router('privacy')">Privacy Policy</a></label>
+                                    <label><input type="checkbox" id="termsCheck"> I agree to the <a href="/terms" onclick="event.preventDefault(); router('terms')">Terms and Conditions</a> and <a href="/privacy" onclick="event.preventDefault(); router('privacy')">Privacy Policy</a></label>
+                                    <span class="error-msg" id="termsCheckError"></span>
                                 </div>
                             </div>
                             <div class="form-actions">
@@ -425,21 +437,21 @@
             <div class="container auth-container">
                 <div class="auth-box">
                     <h1>Welcome Back</h1>
-                    <form id="loginForm" onsubmit="event.preventDefault(); handleLogin();">
+                    <form id="loginForm" novalidate onsubmit="event.preventDefault(); handleLogin();">
                         <div class="form-group">
-                            <label>Email Address</label>
-                            <input type="email" id="loginEmail" required>
+                            <label for="loginEmail">Email Address</label>
+                            <input type="email" id="loginEmail">
                             <span class="error-msg" id="loginEmailError"></span>
                         </div>
                         <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" id="loginPassword" required minlength="8">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword">
                             <span class="error-msg" id="loginPasswordError"></span>
                         </div>
                         <button type="submit" class="btn btn-primary btn-large btn-full">Login</button>
                     </form>
-                    <p class="auth-link">Don't have an account? <a href="#" onclick="router('signup')">Sign Up</a></p>
-                    <p class="auth-link"><a href="#" onclick="router('forgot-password')">Forgot Password?</a></p>
+                    <p class="auth-link">Don't have an account? <a href="/signup" onclick="event.preventDefault(); router('signup')">Sign Up</a></p>
+                    <p class="auth-link"><a href="/forgot-password" onclick="event.preventDefault(); router('forgot-password')">Forgot Password?</a></p>
                 </div>
             </div>
         </section>
@@ -449,35 +461,35 @@
             <div class="container auth-container">
                 <div class="auth-box">
                     <h1>Create Account</h1>
-                    <form id="signupForm" onsubmit="event.preventDefault(); handleSignup();">
+                    <form id="signupForm" novalidate onsubmit="event.preventDefault(); handleSignup();">
                         <div class="form-group">
-                            <label>Full Name</label>
-                            <input type="text" id="signupName" required minlength="2">
+                            <label for="signupName">Full Name</label>
+                            <input type="text" id="signupName">
                             <span class="error-msg" id="signupNameError"></span>
                         </div>
                         <div class="form-group">
-                            <label>Email Address</label>
-                            <input type="email" id="signupEmail" required>
+                            <label for="signupEmail">Email Address</label>
+                            <input type="email" id="signupEmail">
                             <span class="error-msg" id="signupEmailError"></span>
                         </div>
                         <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" id="signupPassword" required minlength="8">
+                            <label for="signupPassword">Password</label>
+                            <input type="password" id="signupPassword">
                             <span class="password-hint">Minimum 8 characters</span>
                             <span class="error-msg" id="signupPasswordError"></span>
                         </div>
                         <div class="form-group">
-                            <label>Confirm Password</label>
-                            <input type="password" id="signupConfirm" required>
+                            <label for="signupConfirm">Confirm Password</label>
+                            <input type="password" id="signupConfirm">
                             <span class="error-msg" id="signupConfirmError"></span>
                         </div>
                         <div class="form-group checkbox-group">
-                            <label><input type="checkbox" id="signupTerms" required> I agree to the <a href="#" onclick="router('terms')">Terms and Conditions</a></label>
+                            <label><input type="checkbox" id="signupTerms" required> I agree to the <a href="/terms" onclick="event.preventDefault(); router('terms')">Terms and Conditions</a></label>
                             <span class="error-msg" id="signupTermsError"></span>
                         </div>
                         <button type="submit" class="btn btn-primary btn-large btn-full">Create Account</button>
                     </form>
-                    <p class="auth-link">Already have an account? <a href="#" onclick="router('login')">Login</a></p>
+                    <p class="auth-link">Already have an account? <a href="/login" onclick="event.preventDefault(); router('login')">Login</a></p>
                 </div>
             </div>
         </section>
@@ -487,14 +499,15 @@
             <div class="container auth-container">
                 <div class="auth-box">
                     <h1>Reset Password</h1>
-                    <form id="forgotForm" onsubmit="event.preventDefault(); handleForgot();">
+                    <form id="forgotForm" novalidate onsubmit="event.preventDefault(); handleForgot();">
                         <div class="form-group">
-                            <label>Email Address</label>
-                            <input type="email" id="forgotEmail" required>
+                            <label for="forgotEmail">Email Address</label>
+                            <input type="email" id="forgotEmail">
+                            <span class="error-msg" id="forgotEmailError"></span>
                         </div>
                         <button type="submit" class="btn btn-primary btn-large btn-full">Send Reset Link</button>
                     </form>
-                    <p class="auth-link"><a href="#" onclick="router('login')">Back to Login</a></p>
+                    <p class="auth-link"><a href="/login" onclick="event.preventDefault(); router('login')">Back to Login</a></p>
                 </div>
             </div>
         </section>
@@ -505,16 +518,16 @@
                 <div class="auth-box">
                     <h1>Set a New Password</h1>
                     <p>Choose a new password for your account.</p>
-                    <form id="resetPasswordForm" onsubmit="event.preventDefault(); handleResetPassword();">
+                    <form id="resetPasswordForm" novalidate onsubmit="event.preventDefault(); handleResetPassword();">
                         <div class="form-group">
-                            <label>New Password</label>
-                            <input type="password" id="resetPassword" required minlength="8">
+                            <label for="resetPassword">New Password</label>
+                            <input type="password" id="resetPassword">
                             <span class="password-hint">Minimum 8 characters</span>
                             <span class="error-msg" id="resetPasswordError"></span>
                         </div>
                         <div class="form-group">
-                            <label>Confirm New Password</label>
-                            <input type="password" id="resetPasswordConfirm" required>
+                            <label for="resetPasswordConfirm">Confirm New Password</label>
+                            <input type="password" id="resetPasswordConfirm">
                             <span class="error-msg" id="resetPasswordConfirmError"></span>
                         </div>
                         <button type="submit" class="btn btn-primary btn-large btn-full">Update Password</button>
@@ -533,13 +546,14 @@
                     <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2l-2 4v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V6l-2-4"/><path d="M4 6h16"/><path d="M9 10a3 3 0 0 0 6 0"/></svg></div>
                     <p class="empty-title">No orders yet</p>
                     <p class="empty-sub">Browse cards to get started!</p>
-                    <button class="btn btn-primary" onclick="router('browse')">Browse Cards</button>
+                    <button class="btn btn-primary" onclick="goToBrowse()">Browse Cards</button>
                 </div>
             </div>
         </section>
 
         <!-- SELLER DASHBOARD -->
         <section id="seller-dashboard-section" class="page-section hidden">
+            <h1 class="visually-hidden">Seller Dashboard</h1>
             <div class="container dashboard-container">
                 <div class="dashboard-sidebar">
                     <div class="sidebar-nav">
@@ -553,41 +567,54 @@
                     <!-- Overview -->
                     <div class="seller-tab" id="sellerOverview">
                         <h2>Seller Dashboard</h2>
-                        <div class="summary-cards">
-                            <div class="summary-card">
-                                <div class="summary-label">Total Submitted</div>
-                                <div class="summary-value" id="totalSubmitted">0</div>
-                            </div>
-                            <div class="summary-card">
-                                <div class="summary-label">Cards Sold</div>
-                                <div class="summary-value" id="cardsSold">0</div>
-                            </div>
-                            <div class="summary-card">
-                                <div class="summary-label">Total Earnings</div>
-                                <div class="summary-value" id="totalEarnings">$0.00</div>
-                            </div>
-                            <div class="summary-card">
-                                <div class="summary-label">Pending Payout</div>
-                                <div class="summary-value" id="pendingPayout">$0.00</div>
-                            </div>
+
+                        <div class="empty-state hidden" id="sellerOverviewEmpty">
+                            <div class="empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1.5"/><rect x="3" y="9" width="18" height="4" rx="1"/><path d="M10.5 9V21"/><path d="M13.5 9V21"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z"/></svg></div>
+                            <p class="empty-title">No cards listed yet</p>
+                            <p class="empty-sub">Submit your first gift card to start earning. It only takes a couple of minutes, and every card is manually verified before payout.</p>
+                            <button class="btn btn-gold btn-large" onclick="showSellerTab('submit', event)">Submit Your First Card</button>
                         </div>
-                        <button class="btn btn-gold btn-large" onclick="showSellerTab('submit', event)">Submit New Gift Card</button>
-                        <div class="recent-activity">
-                            <h3>Recent Activity</h3>
-                            <div id="sellerActivity"></div>
+
+                        <div class="summary-cards skeleton-only hidden" id="sellerOverviewSkeleton" aria-hidden="true"></div>
+
+                        <div id="sellerOverviewStats">
+                            <div class="summary-cards">
+                                <div class="summary-card">
+                                    <div class="summary-label">Total Submitted</div>
+                                    <div class="summary-value" id="totalSubmitted">0</div>
+                                </div>
+                                <div class="summary-card">
+                                    <div class="summary-label">Cards Sold</div>
+                                    <div class="summary-value" id="cardsSold">0</div>
+                                </div>
+                                <div class="summary-card">
+                                    <div class="summary-label">Total Earnings</div>
+                                    <div class="summary-value" id="totalEarnings">$0.00</div>
+                                </div>
+                                <div class="summary-card">
+                                    <div class="summary-label">Pending Payout</div>
+                                    <div class="summary-value" id="pendingPayout">$0.00</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-gold btn-large" onclick="showSellerTab('submit', event)">Submit New Gift Card</button>
+                            <div class="recent-activity">
+                                <h3>Recent Activity</h3>
+                                <div id="sellerActivity"></div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Submit Card -->
                     <div class="seller-tab hidden" id="sellerSubmit">
                         <h2>Sell Your Gift Card</h2>
-                        <form id="submissionForm" onsubmit="event.preventDefault(); handleSubmission();">
+                        <form id="submissionForm" novalidate onsubmit="event.preventDefault(); handleSubmission();">
                             <div class="form-group">
-                                <label>Retailer / Brand *</label>
-                                <select id="subBrand" required>
+                                <label for="subBrand">Retailer / Brand *</label>
+                                <select id="subBrand">
                                     <option value="">Select a brand</option>
                                     <option>The Warehouse</option>
-                                    <option>Countdown</option>
+                                    <option>Woolworths</option>
+                                    <option>Pak'nSave</option>
                                     <option>New World</option>
                                     <option>Farmers</option>
                                     <option>Noel Leeming</option>
@@ -596,32 +623,37 @@
                                     <option>PB Tech</option>
                                     <option>Other</option>
                                 </select>
+                                <span class="error-msg" id="subBrandError"></span>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label>Card Value (NZD) *</label>
-                                    <input type="number" id="subValue" required min="1" step="0.01" oninput="updateOffer()">
+                                    <label for="subValue">Card Value (NZD) *</label>
+                                    <input type="number" id="subValue" min="1" step="0.01" oninput="updateOffer()">
+                                    <span class="error-msg" id="subValueError"></span>
                                 </div>
                                 <div class="form-group">
-                                    <label>Current Balance (NZD) *</label>
-                                    <input type="number" id="subBalance" required min="1" step="0.01">
+                                    <label for="subBalance">Current Balance (NZD) *</label>
+                                    <input type="number" id="subBalance" min="1" step="0.01">
+                                    <span class="error-msg" id="subBalanceError"></span>
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label>Expiry Date *</label>
-                                <input type="date" id="subExpiry" required>
+                                <label for="subExpiry">Expiry Date *</label>
+                                <input type="date" id="subExpiry">
+                                <span class="error-msg" id="subExpiryError"></span>
                             </div>
                             <div class="form-group">
-                                <label>Gift Card Number *</label>
-                                <input type="password" id="subCardNum" required placeholder="Enter full card number">
+                                <label for="subCardNum">Gift Card Number *</label>
+                                <input type="password" id="subCardNum" placeholder="Enter full card number">
+                                <span class="error-msg" id="subCardNumError"></span>
                             </div>
                             <div class="form-group">
-                                <label>PIN</label>
+                                <label for="subPin">PIN</label>
                                 <input type="password" id="subPin" placeholder="Enter PIN if required">
                             </div>
                             <div class="form-group">
                                 <label>Receipt Upload</label>
-                                <div class="file-upload" onclick="document.getElementById('subReceipt').click()">
+                                <div class="file-upload" tabindex="0" role="button" aria-label="Upload receipt, JPG PNG or PDF up to 5MB" onclick="document.getElementById('subReceipt').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); document.getElementById('subReceipt').click();}">
                                     <p><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>Click to upload receipt</p>
                                     <p class="file-hint">JPG, PNG, PDF up to 5MB</p>
                                 </div>
@@ -633,7 +665,8 @@
                                 <p class="offer-note">Final offer may vary after verification</p>
                             </div>
                             <div class="form-group checkbox-group">
-                                <label><input type="checkbox" id="subTerms" required> I confirm this gift card is legally mine, the balance is accurate, and I agree to the seller terms</label>
+                                <label><input type="checkbox" id="subTerms"> I confirm this gift card is legally mine, the balance is accurate, and I agree to the seller terms</label>
+                                <span class="error-msg" id="subTermsError"></span>
                             </div>
                             <button type="submit" class="btn btn-primary btn-large">Submit for Review</button>
                         </form>
@@ -686,24 +719,38 @@
         <section id="admin-section" class="page-section hidden">
             <div class="container">
                 <h1>Admin Panel</h1>
-                <div class="admin-summary">
-                    <div class="summary-card">
-                        <div class="summary-label">Total Users</div>
-                        <div class="summary-value" id="adminTotalUsers">0</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="summary-label">Active Listings</div>
-                        <div class="summary-value" id="adminActiveListings">0</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="summary-label">Pending Reviews</div>
-                        <div class="summary-value" id="adminPending">0</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="summary-label">Total Sales</div>
-                        <div class="summary-value" id="adminSales">$0.00</div>
+
+                <div class="empty-state admin-welcome hidden" id="adminWelcomeEmpty">
+                    <div class="empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 4.5v6c0 5.5-3.9 9.7-9 11-5.1-1.3-9-5.5-9-11v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg></div>
+                    <p class="empty-title">Welcome to your Admin Panel</p>
+                    <p class="empty-sub">There's no activity yet — no submissions to review, no listings, no sales. Once real users start buying and selling, everything will show up here in real time.</p>
+                    <div class="not-found-btns">
+                        <button class="btn btn-primary" onclick="router('home')">View Main Site</button>
+                        <button class="btn btn-secondary" onclick="router('about')">About Giftlio</button>
                     </div>
                 </div>
+
+                <div class="admin-summary skeleton-only hidden" id="adminSkeleton" aria-hidden="true"></div>
+
+                <div id="adminStatsView">
+                    <div class="admin-summary">
+                        <div class="summary-card">
+                            <div class="summary-label">Total Users</div>
+                            <div class="summary-value" id="adminTotalUsers">0</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">Active Listings</div>
+                            <div class="summary-value" id="adminActiveListings">0</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">Pending Reviews</div>
+                            <div class="summary-value" id="adminPending">0</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="summary-label">Total Sales</div>
+                            <div class="summary-value" id="adminSales">$0.00</div>
+                        </div>
+                    </div>
 
                 <div class="admin-section">
                     <h2>Pending Submissions</h2>
@@ -734,6 +781,7 @@
                 <div class="admin-section">
                     <h2>All Users</h2>
                     <div class="table-wrapper" id="usersTable"></div>
+                </div>
                 </div>
             </div>
         </section>
@@ -777,7 +825,7 @@
                         <li>Request correction of inaccurate data</li>
                         <li>Request deletion (with limitations for legal/transaction records)</li>
                     </ul>
-                    <p>Contact: giftlio.co.nz@gmail.com</p>
+                    <p>Contact: support@giftlio.co.nz</p>
 
                     <h3>7. Cookies</h3>
                     <p>Essential cookies for site functionality. No tracking cookies for advertising.</p>
@@ -845,7 +893,93 @@
                     <p>These terms governed by New Zealand law. Disputes resolved in NZ courts.</p>
 
                     <h3>10. Contact</h3>
-                    <p>Questions? Contact us at giftlio.co.nz@gmail.com</p>
+                    <p>Questions? Contact us at support@giftlio.co.nz</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CONTACT -->
+        <section id="contact-section" class="page-section hidden">
+            <div class="container legal-page">
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
+                <h1>Contact Us</h1>
+                <p class="legal-date">A real person reads every message — not a chatbot.</p>
+
+                <div class="contact-grid">
+                    <div class="contact-card">
+                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+                        <h3>General Inquiries</h3>
+                        <p>Questions about Giftlio, partnerships, or anything else.</p>
+                        <a href="mailto:hello@giftlio.co.nz" class="btn btn-secondary">hello@giftlio.co.nz</a>
+                    </div>
+                    <div class="contact-card">
+                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>
+                        <h3>Email Support</h3>
+                        <p>For order issues, verification questions, or account help.</p>
+                        <a href="mailto:support@giftlio.co.nz" class="btn btn-secondary">support@giftlio.co.nz</a>
+                    </div>
+                    <div class="contact-card">
+                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+                        <h3>Response Time</h3>
+                        <p>We aim to reply to every message within 24 hours, NZ business days.</p>
+                    </div>
+                    <div class="contact-card">
+                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V5l7-3z"/></svg></div>
+                        <h3>Report an Issue</h3>
+                        <p>Something wrong with a card balance or a listing? Tell us straight away.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ABOUT -->
+        <section id="about-section" class="page-section hidden">
+            <div class="container legal-page">
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
+                <h1>About Giftlio</h1>
+                <div class="legal-content founder-story">
+                    <p class="founder-lede">Giftlio started with a drawer full of gift cards I was never going to use.</p>
+                    <p>A birthday voucher here, a leftover balance there — cards from stores I don't shop at, sitting forgotten while I paid full price everywhere else. I figured I couldn't be the only one. Kiwis are sitting on millions of dollars in unused gift card balances, and there was no simple, trustworthy way to turn that into cash — or to buy discounted cards from people in exactly the same position.</p>
+                    <p>So I built Giftlio myself, from Auckland, to fix that. Every card that goes through it is checked by hand against the retailer's own balance tool before it's ever listed — not because a system told me to, but because I'd want that if I were buying. Payments run through Stripe rather than anything I've built myself, because your card details are not something I want to be responsible for storing.</p>
+                    <h3>Why I'm building this in the open</h3>
+                    <p>Giftlio is early. It's a small, NZ-owned operation, not a big company — which means when something needs fixing, I'm the one who fixes it, and when you email support, you're emailing me. I'd rather be upfront about being new and earn trust properly than pretend to be bigger than I am.</p>
+                    <h3>What I'm aiming for</h3>
+                    <p>A marketplace New Zealanders actually trust with their money — for buyers who want a fair discount without wondering if the card is real, and for sellers who want cash for a card they were never going to use, without the hassle of finding a buyer themselves.</p>
+                    <p class="founder-signoff">— Mohammed, Founder</p>
+                    <h3>How Giftlio works</h3>
+                    <p>Every card sold on Giftlio is manually verified against the retailer's own balance-checking tool before it's ever listed. Payments run through Stripe, the same infrastructure used by major NZ retailers — Giftlio never sees or stores your card details.</p>
+                    <h3>Our commitment</h3>
+                    <p>As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act, the same as any NZ retailer. A real person reads every support message.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 404 NOT FOUND -->
+        <section id="not-found-section" class="page-section hidden">
+            <div class="container">
+                <div class="not-found-page">
+                    <svg width="100" height="80" viewBox="0 0 120 100" fill="none">
+                        <rect x="20" y="30" width="80" height="55" rx="10" fill="var(--gray-100)" stroke="var(--gray-300)" stroke-width="2"/>
+                        <path d="M20 45h80" stroke="var(--gray-300)" stroke-width="2"/>
+                        <circle cx="70" cy="62" r="14" fill="none" stroke="var(--gray-400)" stroke-width="3"/>
+                        <path d="M80 72l8 8" stroke="var(--gray-400)" stroke-width="3" stroke-linecap="round"/>
+                        <circle cx="38" cy="20" r="4" fill="var(--gold)"/>
+                        <circle cx="95" cy="24" r="3" fill="var(--navy)"/>
+                    </svg>
+                    <h1>This page went missing</h1>
+                    <p>We couldn't find what you were looking for.</p>
+                    <input type="text" id="notFoundSearch" class="search-input" style="max-width: 340px; margin: 0 auto 24px; display: block;" placeholder="Search gift cards..." onkeydown="if(event.key==='Enter'){document.getElementById('searchInput').value=this.value; router('browse');}">
+                    <div class="not-found-btns">
+                        <button class="btn btn-primary" onclick="goToBrowse()">Browse Cards</button>
+                        <button class="btn btn-secondary" onclick="router('home')">Return Home</button>
+                    </div>
+                    <p class="not-found-popular-label">Popular retailers</p>
+                    <div class="not-found-chips">
+                        <button class="filter-chip" onclick="filterByBrand('The Warehouse')">The Warehouse</button>
+                        <button class="filter-chip" onclick="filterByBrand('Woolworths')">Woolworths</button>
+                        <button class="filter-chip" onclick="filterByBrand('Farmers')">Farmers</button>
+                        <button class="filter-chip" onclick="filterByBrand('PB Tech')">PB Tech</button>
+                    </div>
                 </div>
             </div>
         </section>
@@ -886,7 +1020,7 @@
                     <h1>Sell Your Gift Card</h1>
                     <p>Turn your unwanted gift cards into cash.</p>
                     <button class="btn btn-primary btn-large btn-full" onclick="checkAuthThen('seller-dashboard')">Get Started</button>
-                    <p class="auth-link"><a href="#" onclick="router('how-it-works')">Learn more about selling</a></p>
+                    <p class="auth-link"><a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">Learn more about selling</a></p>
                 </div>
             </div>
         </section>
@@ -897,14 +1031,22 @@
         <div class="container footer-content">
             <div class="footer-brand">
                 <span class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#1F4D3A"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#1F4D3A" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#1F4D3A"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#1F4D3A"/></svg></span><span class="logo-word">Giftlio</span></span>
-                <p>New Zealand's trusted gift card marketplace.</p>
+                <p>New Zealand's gift card marketplace.</p>
+                <a href="mailto:support@giftlio.co.nz" class="footer-email">support@giftlio.co.nz</a>
             </div>
             <div class="footer-links">
-                <a href="#" onclick="router('how-it-works')">How It Works</a>
-                <a href="#" onclick="router('privacy')">Privacy Policy</a>
-                <a href="#" onclick="router('terms')">Terms & Conditions</a>
-                <a href="mailto:giftlio.co.nz@gmail.com">Contact</a>
+                <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">How It Works</a>
+                <a href="/about" onclick="event.preventDefault(); router('about')">About</a>
+                <a href="/privacy" onclick="event.preventDefault(); router('privacy')">Privacy Policy</a>
+                <a href="/terms" onclick="event.preventDefault(); router('terms')">Terms & Conditions</a>
+                <a href="/contact" onclick="event.preventDefault(); router('contact')">Contact</a>
             </div>
+            <div class="footer-social">
+                <a href="#" aria-label="Giftlio on Instagram" title="Instagram (coming soon)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg></a>
+                <a href="#" aria-label="Giftlio on Facebook" title="Facebook (coming soon)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg></a>
+                <a href="#" aria-label="Giftlio on X" title="X (coming soon)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 4h3l-7.5 8.6L22 20h-6.8l-5.3-6.3L4 20H1l8-9.2L2 4h7l4.8 5.7z"/></svg></a>
+            </div>
+            <p class="footer-payment-note">Afterpay and Zip — coming soon. Secure card payment via Stripe is available now.</p>
             <p class="copyright">© 2026 Giftlio. All rights reserved.</p>
         </div>
     </footer>
@@ -912,7 +1054,7 @@
     <!-- Modals -->
     <div class="modal-overlay hidden" id="modalOverlay" onclick="closeModal()"></div>
     <div class="modal hidden" id="detailModal">
-        <button class="modal-close" onclick="closeModal()">×</button>
+        <button class="modal-close" aria-label="Close" onclick="closeModal()">×</button>
         <div id="modalContent"></div>
     </div>
 
