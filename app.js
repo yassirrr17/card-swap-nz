@@ -1,6 +1,5 @@
 const DEFAULT_CHECKOUT_STEP = 1;
 const MAX_CHECKOUT_STEP = 4;
-const SELLER_OFFER_RATE = 0.85;
 const MARKETPLACE_COMMISSION_RATE = 0.10;
 
 const TOAST_ICONS = {
@@ -69,15 +68,26 @@ const AppState = {
  * saved takes effect on the very next approval -- no redeploy, no stale
  * in-memory copy from page load.
  */
+/**
+ * Fetches every brand's current discount percentage AND Instant Sell
+ * availability from the database, caching in AppState. Always called fresh
+ * (never assumed still valid from an earlier load) anywhere it matters --
+ * admin approval, the sell form, and the brand discounts admin page --
+ * so a change an admin just saved takes effect on the very next read, no
+ * stale in-memory copy and no redeploy.
+ */
 async function loadBrandDiscounts() {
-    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent');
+    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent, instant_sell_available');
     if (error) {
         console.error('Failed to load brand discounts:', error);
         return AppState.brandDiscounts;
     }
     const map = {};
     (data || []).forEach((row) => {
-        map[row.brand] = Number(row.discount_percent);
+        map[row.brand] = {
+            discountPercent: Number(row.discount_percent),
+            instantSellAvailable: row.instant_sell_available !== false
+        };
     });
     AppState.brandDiscounts = map;
     return map;
@@ -1603,6 +1613,57 @@ async function viewOrderDetail(orderDbId) {
     }
 }
 
+/**
+ * Renders the Sell page. Always fetches brand discounts fresh (never
+ * trusts a value loaded earlier in the session) so an admin's just-saved
+ * change to a discount percentage or Instant Sell availability takes
+ * effect the moment a seller opens this page -- no stale cache, no
+ * redeploy needed.
+ */
+async function renderSellPage() {
+    await loadBrandDiscounts();
+    populateBrandDropdown();
+    updateOffer();
+}
+
+/**
+ * Fills the retailer dropdown based on the currently selected sale mode.
+ * Instant Sell only shows brands with instant_sell_available = true in the
+ * database. Marketplace mode is never restricted by that flag -- a brand
+ * hidden from Instant Sell must still be sellable on the Marketplace.
+ */
+function populateBrandDropdown() {
+    const select = document.getElementById('subBrand');
+    if (!select) return;
+
+    const mode = getSelectedSaleMode();
+    const previousValue = select.value;
+    const allBrands = Object.keys(BRAND_COLORS).sort();
+
+    const visibleBrands = allBrands.filter((brand) => {
+        if (mode !== 'instant') return true;
+        const config = AppState.brandDiscounts[brand];
+        // A brand with no config row at all defaults to visible (it just
+        // won't be approvable until an admin sets a percentage) rather
+        // than silently disappearing from the form.
+        return config ? config.instantSellAvailable : true;
+    });
+
+    select.innerHTML =
+        '<option value="">Select a brand</option>' +
+        visibleBrands.map((b) => `<option ${b === previousValue ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('') +
+        '<option value="Other"' + (previousValue === 'Other' ? ' selected' : '') + '>Other</option>';
+
+    // If the brand the seller had selected is no longer valid for this
+    // mode (e.g. they switch to Instant Sell and their brand is disabled
+    // there), clear the selection rather than silently keeping a hidden
+    // value selected.
+    if (previousValue && !visibleBrands.includes(previousValue) && previousValue !== 'Other') {
+        select.value = '';
+        updateOffer();
+    }
+}
+
 function showSellerTab(tab, event) {
     document.querySelectorAll('.seller-tab').forEach((t) => t.classList.add('hidden'));
     document.querySelectorAll('.sidebar-btn').forEach((b) => b.classList.remove('active'));
@@ -1730,6 +1791,7 @@ function handleSaleModeChange() {
         opt.classList.toggle('selected', opt.querySelector('input').value === mode);
     });
     document.getElementById('sellerPriceGroup').classList.toggle('hidden', mode !== 'marketplace');
+    populateBrandDropdown();
     updateOffer();
 }
 
@@ -1743,12 +1805,30 @@ function updateOffer() {
         const payout = askingPrice * (1 - MARKETPLACE_COMMISSION_RATE);
         offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">${formatCurrency(payout)}</strong>`;
         offerNote.textContent = 'Paid out once a buyer purchases your card, after 10% commission';
-    } else {
-        const balance = parseFloat(document.getElementById('subBalance').value) || 0;
-        const offer = balance * SELLER_OFFER_RATE;
-        offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">${formatCurrency(offer)}</strong>`;
-        offerNote.textContent = 'Final offer may vary after verification, paid once approved';
+        return;
     }
+
+    const balance = parseFloat(document.getElementById('subBalance').value) || 0;
+    const brand = document.getElementById('subBrand').value;
+    const brandConfig = brand ? AppState.brandDiscounts[brand] : null;
+
+    if (!brand) {
+        offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">$0.00</strong>`;
+        offerNote.textContent = 'Select a retailer to see your offer';
+        return;
+    }
+
+    if (!brandConfig) {
+        offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">$0.00</strong>`;
+        offerNote.textContent = `${brand} has no discount configured yet -- contact support before submitting`;
+        return;
+    }
+
+    // The ONLY calculation path: current balance x this brand's specific
+    // percentage from the database. Never a flat rate, never a guess.
+    const priced = GiftlioPricing.calculateSalePrice(balance, brandConfig.discountPercent);
+    offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">${formatCurrency(priced.salePrice)}</strong>`;
+    offerNote.textContent = `${brand}'s current rate: you receive ${100 - brandConfig.discountPercent}% of the balance, paid once approved`;
 }
 
 async function handleSubmission() {
@@ -1817,8 +1897,26 @@ async function handleSubmission() {
     }
     if (hasError) return;
 
+    let offerAmount;
+    if (saleMode === 'marketplace') {
+        offerAmount = sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE);
+    } else {
+        // The ONLY calculation path for Instant Sell: current balance x
+        // this brand's specific percentage, freshly loaded from the
+        // database. Never a flat rate, never a silent guess -- a brand
+        // with no configured percentage blocks submission entirely rather
+        // than storing a wrong offer.
+        await loadBrandDiscounts();
+        const brandConfig = AppState.brandDiscounts[brand];
+        const priced = GiftlioPricing.calculateSalePrice(balance, brandConfig ? brandConfig.discountPercent : undefined);
+        if (priced.error) {
+            setFieldError('subBrand', 'subBrandError', `${brand} has no discount percentage configured yet. Please contact support@giftlio.co.nz.`);
+            return;
+        }
+        offerAmount = priced.salePrice;
+    }
+
     const submissionPublicId = generatePublicId('SUB');
-    const offerAmount = saleMode === 'marketplace' ? sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE) : balance * SELLER_OFFER_RATE;
 
     try {
         await withLoading(async () => {
@@ -2298,7 +2396,7 @@ async function renderBrandDiscountsTable() {
     const container = document.getElementById('brandDiscountsTable');
     if (!container) return;
 
-    container.innerHTML = renderSkeletonTableRows(3, 5);
+    container.innerHTML = renderSkeletonTableRows(4, 5);
 
     try {
         const discounts = await loadBrandDiscounts();
@@ -2311,24 +2409,31 @@ async function renderBrandDiscountsTable() {
                         <th>Brand</th>
                         <th>Current Discount</th>
                         <th>New Discount (0-25%)</th>
+                        <th>Available for Instant Sell</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${allBrands
                         .map((brand) => {
-                            const current = discounts[brand] !== undefined ? discounts[brand] : GiftlioPricing.DEFAULT_DISCOUNT;
+                            const config = discounts[brand];
+                            const current = config ? config.discountPercent : null;
+                            const isAvailable = config ? config.instantSellAvailable : true;
                             const inputId = `brandDiscountInput-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
+                            const checkboxId = `brandAvailable-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const errorId = `${inputId}Error`;
                             return `
                         <tr>
                             <td data-label="Brand"><strong>${escapeHtml(brand)}</strong></td>
-                            <td data-label="Current Discount">${current}%</td>
+                            <td data-label="Current Discount">${current === null ? 'Not set' : current + '%'}</td>
                             <td data-label="New Discount">
-                                <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current}" style="width: 90px;">
+                                <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current !== null ? current : ''}" placeholder="0-25" style="width: 90px;">
                                 <span class="error-msg" id="${errorId}"></span>
                             </td>
-                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}')">Save</button></td>
+                            <td data-label="Available for Instant Sell">
+                                <label class="checkbox-group" style="margin:0;"><input type="checkbox" id="${checkboxId}" ${isAvailable ? 'checked' : ''}> Available</label>
+                            </td>
+                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}')">Save</button></td>
                         </tr>
                     `;
                         })
@@ -2341,9 +2446,10 @@ async function renderBrandDiscountsTable() {
     }
 }
 
-async function saveBrandDiscount(brand, inputId, errorId) {
+async function saveBrandDiscount(brand, inputId, errorId, checkboxId) {
     const input = document.getElementById(inputId);
     const errorEl = document.getElementById(errorId);
+    const checkbox = document.getElementById(checkboxId);
     errorEl.textContent = '';
     input.classList.remove('field-error');
 
@@ -2361,15 +2467,20 @@ async function saveBrandDiscount(brand, inputId, errorId) {
         return;
     }
 
+    const instantSellAvailable = checkbox.checked;
+
     try {
         const { error } = await supabaseClient
             .from('brand_discounts')
-            .upsert({ brand, discount_percent: num, updated_at: new Date().toISOString() }, { onConflict: 'brand' });
+            .upsert(
+                { brand, discount_percent: num, instant_sell_available: instantSellAvailable, updated_at: new Date().toISOString() },
+                { onConflict: 'brand' }
+            );
 
         if (error) throw error;
 
-        AppState.brandDiscounts[brand] = num;
-        showToast('success', `${brand} discount updated to ${num}%. Applies to all new listings immediately.`);
+        AppState.brandDiscounts[brand] = { discountPercent: num, instantSellAvailable };
+        showToast('success', `${brand} updated: ${num}% discount, ${instantSellAvailable ? 'available' : 'hidden'} for Instant Sell. Applies immediately.`);
         await renderBrandDiscountsTable();
     } catch (error) {
         showError(error, 'Unable to save this discount.');
@@ -2418,8 +2529,11 @@ async function approveSubmission(submissionDbId) {
                 sellerPayoutAmount = Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2));
             } else {
                 await loadBrandDiscounts();
-                const brandDiscountPercent = AppState.brandDiscounts[sub.brand];
-                const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, brandDiscountPercent);
+                const brandConfig = AppState.brandDiscounts[sub.brand];
+                const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, brandConfig ? brandConfig.discountPercent : undefined);
+                if (priced.error) {
+                    throw new Error(`Cannot approve: ${sub.brand} has no discount percentage configured. Set one in Brand Discounts first.`);
+                }
                 if (!priced.purchasable) {
                     throw new Error('Cannot approve: this card has a zero or invalid balance and cannot be priced.');
                 }
@@ -2669,6 +2783,7 @@ async function router(page, options = {}) {
 
     if (page === 'home') await renderHome();
     if (page === 'browse') await renderBrowse();
+    if (page === 'sell') await renderSellPage();
     if (page === 'orders') await renderOrders();
     if (page === 'seller-dashboard') await renderSellerDashboard();
     if (page === 'admin') await renderAdmin();
