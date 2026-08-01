@@ -177,6 +177,23 @@
         </div>
     </div>
 
+    <!-- Generic admin confirmation modal - every destructive/important admin action routes through this instead of native confirm()/prompt() -->
+    <div class="modal-overlay hidden" id="confirmModalOverlay" onclick="closeConfirmModal()"></div>
+    <div class="modal hidden" id="confirmModal">
+        <button class="modal-close" aria-label="Close" onclick="closeConfirmModal()">×</button>
+        <h2 id="confirmModalTitle" style="color: var(--navy); margin-bottom: 12px;">Confirm Action</h2>
+        <p id="confirmModalMessage" style="color: var(--gray-700); margin-bottom: 16px;"></p>
+        <div class="form-group hidden" id="confirmModalReasonGroup">
+            <label for="confirmModalReasonInput" id="confirmModalReasonLabel">Reason</label>
+            <textarea id="confirmModalReasonInput" rows="3"></textarea>
+            <span class="error-msg" id="confirmModalReasonError"></span>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+            <button class="btn btn-outline" onclick="closeConfirmModal()">Cancel</button>
+            <button class="btn btn-primary" id="confirmModalConfirmBtn">Confirm</button>
+        </div>
+    </div>
+
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
         <a href="/" onclick="event.preventDefault(); router('home'); toggleMobileMenu()">Home</a>
@@ -837,8 +854,45 @@
                 </div>
 
                 <div class="admin-section">
-                    <h2>All Listings</h2>
+                    <h2>Audit Log</h2>
+                    <p class="section-subtitle">Every action taken by every admin, for accountability and disputes.</p>
+                    <div class="audit-log-filters">
+                        <select id="auditFilterAdmin"><option value="">All admins</option></select>
+                        <select id="auditFilterAction"><option value="">All action types</option></select>
+                        <input type="date" id="auditFilterFrom" aria-label="From date">
+                        <input type="date" id="auditFilterTo" aria-label="To date">
+                        <button class="btn btn-outline btn-sm" onclick="applyAuditLogFilters()">Filter</button>
+                        <button class="btn btn-outline btn-sm" onclick="exportAuditLogCsv()">Export CSV</button>
+                    </div>
+                    <div class="table-wrapper" id="auditLogTable"></div>
+                </div>
+
+                <div class="admin-section">
+                    <h2>Active Listings</h2>
+                    <p class="section-subtitle">Every live card on the marketplace. Suspending hides a listing from Browse but keeps the record for audit purposes; removing is permanent.</p>
+                    <div class="audit-log-filters">
+                        <input type="text" id="listingsSearchInput" placeholder="Search retailer, seller, or value..." style="flex: 1; min-width: 200px;" oninput="applyListingsFilters()">
+                        <select id="listingsFilterMode" onchange="applyListingsFilters()">
+                            <option value="">All listing types</option>
+                            <option value="instant">Instant Sell</option>
+                            <option value="marketplace">Marketplace</option>
+                        </select>
+                        <select id="listingsFilterStatus" onchange="applyListingsFilters()">
+                            <option value="">All statuses</option>
+                            <option value="active">Active</option>
+                            <option value="suspended">Suspended</option>
+                            <option value="sold">Sold</option>
+                            <option value="inactive">Removed</option>
+                        </select>
+                    </div>
                     <div class="table-wrapper" id="allListingsTable"></div>
+                </div>
+
+                <!-- Seller history modal, opened from Active Listings -->
+                <div class="modal-overlay hidden" id="sellerHistoryOverlay" onclick="closeSellerHistoryModal()"></div>
+                <div class="modal hidden" id="sellerHistoryModal">
+                    <button class="modal-close" aria-label="Close" onclick="closeSellerHistoryModal()">×</button>
+                    <div id="sellerHistoryContent"></div>
                 </div>
 
                 <div class="admin-section">
