@@ -43,7 +43,7 @@ module.exports = async function handler(req, res) {
         // buyer has an ACCEPTED agreement for on this listing.
         const { data: listing, error: listingError } = await supabaseAdmin
             .from('listings')
-            .select('sale_price, status')
+            .select('sale_price, status, brand')
             .eq('id', listingId)
             .single();
 
@@ -52,6 +52,15 @@ module.exports = async function handler(req, res) {
         }
         if (listing.status !== 'active') {
             return res.status(400).json({ error: 'This listing is no longer available.' });
+        }
+
+        // Retailer kill switch, enforced server-side too -- a client-side
+        // disabled button is a UI convenience, not security. Without this
+        // check here, disabling a retailer in the admin panel wouldn't
+        // actually stop a determined buyer from completing a purchase.
+        const { data: brandConfig } = await supabaseAdmin.from('brand_discounts').select('retailer_enabled').eq('brand', listing.brand).maybeSingle();
+        if (brandConfig && brandConfig.retailer_enabled === false) {
+            return res.status(400).json({ error: `${listing.brand} is temporarily unavailable for purchase right now.` });
         }
 
         const submittedPrice = Number(salePrice);
