@@ -94,11 +94,27 @@ function subscribeToBrandDiscountChanges() {
             await loadBrandDiscounts();
 
             // If the Sell page is the one currently visible, refresh its
-            // dropdown and live offer estimate immediately.
+            // tile picker and live offer estimate immediately.
             const sellSection = document.getElementById('sell-section');
             if (sellSection && !sellSection.classList.contains('hidden')) {
                 populateBrandDropdown();
                 updateOffer();
+            }
+
+            // Browse grid: re-run the current filters so cards immediately
+            // reflect the new discount % / availability badge, with no
+            // page reload and no re-navigation needed.
+            const browseSection = document.getElementById('browse-section');
+            if (browseSection && !browseSection.classList.contains('hidden')) {
+                applyFilters();
+            }
+
+            // Listing detail page: re-render so the Buy Now button and
+            // availability badge update live if someone's looking at a
+            // listing whose retailer just got toggled.
+            const listingSection = document.getElementById('listing-detail-section');
+            if (listingSection && !listingSection.classList.contains('hidden') && AppState.currentListing) {
+                viewListing(AppState.currentListing.id, { historyMode: 'none' });
             }
 
             // If the admin's Brand Discounts table is currently visible,
@@ -113,7 +129,7 @@ function subscribeToBrandDiscountChanges() {
 }
 
 async function loadBrandDiscounts() {
-    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent, instant_sell_available');
+    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent, instant_sell_available, retailer_enabled');
     if (error) {
         console.error('Failed to load brand discounts:', error);
         return AppState.brandDiscounts;
@@ -122,7 +138,12 @@ async function loadBrandDiscounts() {
     (data || []).forEach((row) => {
         map[row.brand] = {
             discountPercent: Number(row.discount_percent),
-            instantSellAvailable: row.instant_sell_available !== false
+            instantSellAvailable: row.instant_sell_available !== false,
+            // The authoritative whole-retailer toggle. Every page that
+            // needs to know "can this retailer be bought or sold right
+            // now" reads THIS field, from THIS single loader -- never a
+            // locally cached copy, never a hardcoded assumption.
+            retailerEnabled: row.retailer_enabled !== false
         };
     });
     AppState.brandDiscounts = map;
@@ -939,11 +960,23 @@ function renderListingCard(listing) {
                </span>`
             : '';
 
+    // Retailer-level kill switch, checked from the SAME single source of
+    // truth every other page reads (AppState.brandDiscounts, loaded via
+    // loadBrandDiscounts()). The listing itself is never hidden or removed
+    // when its retailer is disabled -- only the purchase action is blocked,
+    // with a clear badge explaining why.
+    const brandConfig = AppState.brandDiscounts[listing.brand];
+    const retailerUnavailable = brandConfig && brandConfig.retailerEnabled === false;
+
+    const buyButton = retailerUnavailable
+        ? `<button class="btn btn-disabled" aria-label="${escapeHtml(listing.brand)} is temporarily unavailable" onclick="event.stopPropagation(); showRetailerUnavailableNotice('${escapeJsString(listing.brand)}')">Temporarily Unavailable</button>`
+        : `<button class="btn btn-primary" aria-label="View ${escapeHtml(listing.brand)} gift card, ${formatCurrency(listing.salePrice)}, save ${listing.discount} percent" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>`;
+
     return `
-        <div class="listing-card" onclick="viewListing('${listing.id}')">
+        <div class="listing-card ${retailerUnavailable ? 'listing-card-unavailable' : ''}" onclick="${retailerUnavailable ? `event.stopPropagation(); showRetailerUnavailableNotice('${escapeJsString(listing.brand)}')` : `viewListing('${listing.id}')`}">
             <div class="listing-card-header">
                 ${retailerBadgeHTML(listing.brand)}
-                ${verifyBadge}
+                ${retailerUnavailable ? '<span class="unavailable-badge">Temporarily Unavailable</span>' : verifyBadge}
             </div>
             <div class="listing-card-body">
                 <div class="listing-value">${formatCurrency(listing.faceValue)}</div>
@@ -955,7 +988,7 @@ function renderListingCard(listing) {
                 <div class="listing-seller-verified">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}${infoTooltip}
                 </div>
-                <button class="btn btn-primary" aria-label="View ${escapeHtml(listing.brand)} gift card, ${formatCurrency(listing.salePrice)}, save ${listing.discount} percent" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>
+                ${buyButton}
             </div>
         </div>
     `;
@@ -1125,7 +1158,7 @@ function listingMatchesSearch(listing, rawQuery) {
 async function applyFilters() {
     try {
         await withLoading(async () => {
-            const allListings = await getActiveListings();
+            const [allListings] = await Promise.all([getActiveListings(), loadBrandDiscounts()]);
             let listings = allListings;
             const search = document.getElementById('searchInput').value;
             const discountFilter = document.getElementById('discountFilter').value;
@@ -1390,7 +1423,7 @@ async function viewListing(id, options = {}) {
 
     try {
         await withLoading(async () => {
-            const { data, error } = await supabaseClient.from('listings').select('*').eq('id', id).single();
+            const [{ data, error }] = await Promise.all([supabaseClient.from('listings').select('*').eq('id', id).single(), loadBrandDiscounts()]);
             if (error) throw error;
 
             const listing = listingRowToView(data);
@@ -1412,10 +1445,13 @@ async function viewListing(id, options = {}) {
 
             const similar = (similarData || []).map(listingRowToView);
 
+            const detailBrandConfig = AppState.brandDiscounts[listing.brand];
+            const detailRetailerUnavailable = detailBrandConfig && detailBrandConfig.retailerEnabled === false;
+
             document.getElementById('detailLayout').innerHTML = `
                 <div class="detail-left">
                     <h1 class="visually-hidden">${escapeHtml(listing.brand)} gift card, ${formatCurrency(listing.faceValue)} value</h1>
-                    <div class="detail-brand-badge">${retailerBadgeHTML(listing.brand)}</div>
+                    <div class="detail-brand-badge">${retailerBadgeHTML(listing.brand)}${detailRetailerUnavailable ? '<span class="unavailable-badge">Temporarily Unavailable</span>' : ''}</div>
                     <div class="detail-value">${formatCurrency(listing.faceValue)}</div>
                     <div class="detail-price">${formatCurrency(listing.salePrice)}</div>
                     <span class="gst-note">GST included</span>
@@ -1468,12 +1504,17 @@ async function viewListing(id, options = {}) {
                         </div>
                     </div>
                     <div class="detail-action">
-                        <button class="btn btn-gold" onclick="startCheckout()">
+                        ${
+                            detailRetailerUnavailable
+                                ? `<button class="btn btn-disabled" onclick="showRetailerUnavailableNotice('${escapeJsString(listing.brand)}')">Temporarily Unavailable</button>
+                                   <p style="font-size: 12px; color: var(--gray-600); margin-top: 8px; text-align: center;">${escapeHtml(listing.brand)} is temporarily unavailable for purchase right now. Please check back soon.</p>`
+                                : `<button class="btn btn-gold" onclick="startCheckout()">
                             Buy Now - ${formatCurrency(listing.salePrice)} NZD
                         </button>
-                        <p style="font-size: 12px; color: var(--gray-500); margin-top: 8px; text-align: center;">Includes service fee</p>
+                        <p style="font-size: 12px; color: var(--gray-500); margin-top: 8px; text-align: center;">Includes service fee</p>`
+                        }
                     </div>
-                    ${listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId ? '<div id="offerPanel"></div>' : ''}
+                    ${!detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId ? '<div id="offerPanel"></div>' : ''}
                     ${
                         similar.length > 0
                             ? `<div class="detail-section">
@@ -1497,7 +1538,7 @@ async function viewListing(id, options = {}) {
                 </div>
             `;
 
-            if (listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
+            if (!detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
                 await renderOfferPanel(listing);
             }
 
@@ -1827,36 +1868,72 @@ async function renderSellPage() {
  * database. Marketplace mode is never restricted by that flag -- a brand
  * hidden from Instant Sell must still be sellable on the Marketplace.
  */
+/**
+ * Renders the retailer tile picker on the Sell form. Every retailer is
+ * ALWAYS shown, in its normal position -- disabling a retailer in the
+ * admin panel never removes or hides it here. A disabled retailer instead
+ * gets a "Temporarily Unavailable" badge and becomes unselectable, with a
+ * toast explaining why if a seller taps it anyway.
+ *
+ * A retailer can be unavailable two ways: retailer_enabled=false blocks it
+ * for every sale mode; instant_sell_available=false blocks Instant Sell
+ * specifically while leaving Marketplace open (the older, more granular
+ * toggle, still respected alongside the newer whole-retailer one).
+ */
 function populateBrandDropdown() {
     const select = document.getElementById('subBrand');
-    if (!select) return;
+    const tileGrid = document.getElementById('brandTilePicker');
+    if (!select || !tileGrid) return;
 
     const mode = getSelectedSaleMode();
     const previousValue = select.value;
     const allBrands = Object.keys(BRAND_COLORS).sort();
 
-    const visibleBrands = allBrands.filter((brand) => {
-        if (mode !== 'instant') return true;
+    const isUnavailable = (brand) => {
         const config = AppState.brandDiscounts[brand];
-        // A brand with no config row at all defaults to visible (it just
-        // won't be approvable until an admin sets a percentage) rather
-        // than silently disappearing from the form.
-        return config ? config.instantSellAvailable : true;
-    });
+        if (!config) return false; // no row yet -- stays selectable, just unapprovable later
+        if (!config.retailerEnabled) return true;
+        if (mode === 'instant' && !config.instantSellAvailable) return true;
+        return false;
+    };
 
+    // Hidden select stays in sync for every bit of existing code that
+    // reads document.getElementById('subBrand').value.
     select.innerHTML =
         '<option value="">Select a brand</option>' +
-        visibleBrands.map((b) => `<option ${b === previousValue ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('') +
+        allBrands.map((b) => `<option ${b === previousValue ? 'selected' : ''}>${escapeHtml(b)}</option>`).join('') +
         '<option value="Other"' + (previousValue === 'Other' ? ' selected' : '') + '>Other</option>';
 
-    // If the brand the seller had selected is no longer valid for this
-    // mode (e.g. they switch to Instant Sell and their brand is disabled
-    // there), clear the selection rather than silently keeping a hidden
-    // value selected.
-    if (previousValue && !visibleBrands.includes(previousValue) && previousValue !== 'Other') {
+    tileGrid.innerHTML = allBrands
+        .map((brand) => {
+            const unavailable = isUnavailable(brand);
+            const selected = brand === previousValue;
+            return `
+                <button type="button" class="retailer-tile ${selected ? 'selected' : ''} ${unavailable ? 'unavailable' : ''}"
+                        role="radio" aria-checked="${selected}" ${unavailable ? 'aria-disabled="true"' : ''}
+                        onclick="${unavailable ? `showRetailerUnavailableNotice('${escapeJsString(brand)}')` : `selectBrandTile('${escapeJsString(brand)}')`}">
+                    ${retailerBadgeHTML(brand)}
+                    ${unavailable ? '<span class="unavailable-badge">Temporarily Unavailable</span>' : ''}
+                </button>
+            `;
+        })
+        .join('');
+
+    if (previousValue && isUnavailable(previousValue)) {
         select.value = '';
         updateOffer();
+        populateBrandDropdown();
     }
+}
+
+function selectBrandTile(brand) {
+    document.getElementById('subBrand').value = brand;
+    populateBrandDropdown();
+    updateOffer();
+}
+
+function showRetailerUnavailableNotice(brand) {
+    showToast('warning', `${brand} is temporarily unavailable right now. You can't submit a card for this retailer until it's re-enabled -- try another retailer or check back soon.`);
 }
 
 function showSellerTab(tab, event) {
@@ -2060,6 +2137,14 @@ async function handleSubmission() {
     if (!brand) {
         setFieldError('subBrand', 'subBrandError', 'Select which retailer this card is from');
         hasError = true;
+    } else {
+        await loadBrandDiscounts();
+        const brandConfig = AppState.brandDiscounts[brand];
+        const blockedForThisMode = brandConfig && (!brandConfig.retailerEnabled || (saleMode === 'instant' && !brandConfig.instantSellAvailable));
+        if (blockedForThisMode) {
+            setFieldError('subBrand', 'subBrandError', `${brand} is temporarily unavailable. Please choose another retailer.`);
+            hasError = true;
+        }
     }
 
     const faceValueCheck = GiftlioPricing.validateFaceValue(valueRaw);
@@ -3200,7 +3285,8 @@ async function renderBrandDiscountsTable() {
                         <th>Brand</th>
                         <th>Current Discount</th>
                         <th>New Discount (0-25%)</th>
-                        <th>Available for Instant Sell</th>
+                        <th>Retailer Enabled</th>
+                        <th>Instant Sell Only</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -3210,8 +3296,10 @@ async function renderBrandDiscountsTable() {
                             const config = discounts[brand];
                             const current = config ? config.discountPercent : null;
                             const isAvailable = config ? config.instantSellAvailable : true;
+                            const isEnabled = config ? config.retailerEnabled : true;
                             const inputId = `brandDiscountInput-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const checkboxId = `brandAvailable-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
+                            const enabledId = `brandEnabled-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const errorId = `${inputId}Error`;
                             return `
                         <tr>
@@ -3221,10 +3309,13 @@ async function renderBrandDiscountsTable() {
                                 <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current !== null ? current : ''}" placeholder="0-25" style="width: 90px;">
                                 <span class="error-msg" id="${errorId}"></span>
                             </td>
-                            <td data-label="Available for Instant Sell">
-                                <label class="checkbox-group" style="margin:0;"><input type="checkbox" id="${checkboxId}" ${isAvailable ? 'checked' : ''}> Available</label>
+                            <td data-label="Retailer Enabled">
+                                <label class="checkbox-group" style="margin:0;" title="Whole-retailer kill switch -- blocks both buying and selling this retailer app-wide when off."><input type="checkbox" id="${enabledId}" ${isEnabled ? 'checked' : ''}> Enabled</label>
                             </td>
-                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}')">Save</button></td>
+                            <td data-label="Instant Sell Only">
+                                <label class="checkbox-group" style="margin:0;" title="More granular: hides this retailer from Instant Sell submissions specifically, while Marketplace stays open."><input type="checkbox" id="${checkboxId}" ${isAvailable ? 'checked' : ''}> Available</label>
+                            </td>
+                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}')">Save</button></td>
                         </tr>
                     `;
                         })
@@ -3237,10 +3328,11 @@ async function renderBrandDiscountsTable() {
     }
 }
 
-async function saveBrandDiscount(brand, inputId, errorId, checkboxId) {
+async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId) {
     const input = document.getElementById(inputId);
     const errorEl = document.getElementById(errorId);
     const checkbox = document.getElementById(checkboxId);
+    const enabledCheckbox = document.getElementById(enabledId);
     errorEl.textContent = '';
     input.classList.remove('field-error');
 
@@ -3259,19 +3351,20 @@ async function saveBrandDiscount(brand, inputId, errorId, checkboxId) {
     }
 
     const instantSellAvailable = checkbox.checked;
+    const retailerEnabled = enabledCheckbox.checked;
 
     try {
         const { error } = await supabaseClient
             .from('brand_discounts')
             .upsert(
-                { brand, discount_percent: num, instant_sell_available: instantSellAvailable, updated_at: new Date().toISOString() },
+                { brand, discount_percent: num, instant_sell_available: instantSellAvailable, retailer_enabled: retailerEnabled, updated_at: new Date().toISOString() },
                 { onConflict: 'brand' }
             );
 
         if (error) throw error;
 
-        AppState.brandDiscounts[brand] = { discountPercent: num, instantSellAvailable };
-        await logAdminAction('update_brand_discount', 'brand', null, brand, { discountPercent: num, instantSellAvailable });
+        AppState.brandDiscounts[brand] = { discountPercent: num, instantSellAvailable, retailerEnabled };
+        await logAdminAction('update_brand_discount', 'brand', null, brand, { discountPercent: num, instantSellAvailable, retailerEnabled });
         showToast('success', `${brand} updated: ${num}% discount, ${instantSellAvailable ? 'available' : 'hidden'} for Instant Sell. Applies immediately.`);
         await renderBrandDiscountsTable();
     } catch (error) {
@@ -3314,13 +3407,18 @@ async function approveSubmission(submissionDbId) {
             let commissionRate;
             let sellerPayoutAmount;
 
+            await loadBrandDiscounts();
+            const brandConfigForApproval = AppState.brandDiscounts[sub.brand];
+            if (brandConfigForApproval && !brandConfigForApproval.retailerEnabled) {
+                throw new Error(`Cannot approve: ${sub.brand} is currently disabled. Re-enable it in Brand Discounts first, or reject this submission.`);
+            }
+
             if (isMarketplace) {
                 salePrice = Number(sub.sellerSetPrice.toFixed(2));
                 discount = Math.max(0, Math.min(100, Math.round((1 - salePrice / listingFaceValue) * 100)));
                 commissionRate = MARKETPLACE_COMMISSION_RATE * 100;
                 sellerPayoutAmount = Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2));
             } else {
-                await loadBrandDiscounts();
                 const brandConfig = AppState.brandDiscounts[sub.brand];
                 const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, brandConfig ? brandConfig.discountPercent : undefined);
                 if (priced.error) {
