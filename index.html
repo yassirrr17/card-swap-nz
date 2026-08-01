@@ -606,6 +606,8 @@
                         <button class="sidebar-btn" onclick="showSellerTab('submit', event)">Submit a Card</button>
                         <button class="sidebar-btn" onclick="showSellerTab('submissions', event)">My Submissions</button>
                         <button class="sidebar-btn" onclick="showSellerTab('earnings', event)">My Earnings</button>
+                        <button class="sidebar-btn" onclick="showSellerTab('offers', event)">Offers</button>
+                        <button class="sidebar-btn" id="sellerSettingsTabBtn" onclick="showSellerTab('settings', event)">Settings</button>
                     </div>
                 </div>
                 <div class="dashboard-content">
@@ -785,6 +787,47 @@
                             <p>No payouts yet. Your first payout will appear here.</p>
                         </div>
                     </div>
+
+                    <div class="seller-tab hidden" id="sellerOffers">
+                        <h2>Offers on Your Listings</h2>
+                        <div class="table-wrapper" id="sellerOffersTable"></div>
+                        <div class="empty-state hidden" id="sellerOffersEmpty">
+                            <p>No offers yet. When a buyer offers a price on one of your Marketplace listings, it'll show up here.</p>
+                        </div>
+                    </div>
+
+                    <div class="seller-tab hidden" id="sellerSettings">
+                        <h2>Settings</h2>
+                        <p class="section-subtitle" id="settingsIntroText">Choose how you'd like to hear from us about your Marketplace listings.</p>
+                        <div class="form-group hidden" id="notificationPrefGroup">
+                            <label>Notification preference</label>
+                            <div class="sale-mode-options">
+                                <label class="sale-mode-option" data-pref="every_event">
+                                    <input type="radio" name="notifPref" value="every_event">
+                                    <div class="sale-mode-content">
+                                        <span class="sale-mode-title">Email for every event</span>
+                                        <span class="sale-mode-desc">Get notified as soon as something happens -- a sale, a counter offer, a payout.</span>
+                                    </div>
+                                </label>
+                                <label class="sale-mode-option" data-pref="daily_digest">
+                                    <input type="radio" name="notifPref" value="daily_digest">
+                                    <div class="sale-mode-content">
+                                        <span class="sale-mode-title">Daily digest</span>
+                                        <span class="sale-mode-desc">One summary email per day instead of individual alerts. (Coming soon -- currently behaves like "every event".)</span>
+                                    </div>
+                                </label>
+                                <label class="sale-mode-option" data-pref="payout_only">
+                                    <input type="radio" name="notifPref" value="payout_only">
+                                    <div class="sale-mode-content">
+                                        <span class="sale-mode-title">Payout notifications only</span>
+                                        <span class="sale-mode-desc">Just tell me when my money is on its way -- skip everything else.</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <button class="btn btn-primary" style="margin-top: 16px;" onclick="saveNotificationPreference()">Save Preference</button>
+                        </div>
+                        <p class="section-subtitle hidden" id="instantOnlyNote">You're an Instant Sell seller, so you only ever get 3 emails: submission received, approved with your payout amount, and payout sent. There's nothing to configure here.</p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -827,12 +870,26 @@
                     </div>
 
                 <div class="admin-section">
-                    <h2>Pending Submissions</h2>
-                    <div class="table-wrapper" id="pendingTable"></div>
-                    <div class="empty-state hidden" id="pendingEmpty">
-                        <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-                        <p>No pending submissions</p>
-                        <p class="empty-sub">All caught up!</p>
+                    <h2>Submission Review</h2>
+                    <div class="admin-subtabs">
+                        <button class="admin-subtab active" id="tabInstantBtn" onclick="switchPendingTab('instant')">Instant Sell Submissions</button>
+                        <button class="admin-subtab" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
+                    </div>
+                    <div id="instantPendingPanel">
+                        <div class="table-wrapper" id="pendingTable"></div>
+                        <div class="empty-state hidden" id="pendingEmpty">
+                            <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                            <p>No pending Instant Sell submissions</p>
+                            <p class="empty-sub">All caught up!</p>
+                        </div>
+                    </div>
+                    <div id="marketplacePendingPanel" class="hidden">
+                        <div class="table-wrapper" id="marketplacePendingTable"></div>
+                        <div class="empty-state hidden" id="marketplacePendingEmpty">
+                            <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                            <p>No pending Marketplace listings</p>
+                            <p class="empty-sub">All caught up!</p>
+                        </div>
                     </div>
                 </div>
 
