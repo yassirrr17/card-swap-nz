@@ -43,11 +43,22 @@ function showToast(type, message, duration = 5000) {
     container.appendChild(toast);
 }
 
+/** Escapes a value for safe embedding inside a single-quoted JS string
+    literal within an inline HTML event handler attribute (onclick="...").
+    Needed because escapeHtml alone doesn't protect against this -- the
+    browser HTML-decodes attribute values BEFORE handing them to the JS
+    engine, so an HTML-escaped apostrophe still becomes a raw apostrophe by
+    the time it reaches the JS parser and breaks the string literal. */
+function escapeJsString(str) {
+    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 const AppState = {
     currentUser: null,
     currentListing: null,
     checkoutStep: DEFAULT_CHECKOUT_STEP,
-    currentOrder: null
+    currentOrder: null,
+    activeCategory: null
 };
 
 function toggleSafeItem(button) {
@@ -55,6 +66,41 @@ function toggleSafeItem(button) {
     const isOpen = item.classList.contains('open');
     item.classList.toggle('open', !isOpen);
     button.setAttribute('aria-expanded', String(!isOpen));
+}
+
+async function handleNavSearch(query) {
+    if (!query.trim()) return;
+    const browseSearchInput = document.getElementById('searchInput');
+    if (browseSearchInput) browseSearchInput.value = query;
+    await router('browse');
+}
+
+/**
+ * Called when a "Browse by Retailer" tile is clicked. Navigates to Browse
+ * and pre-filters results down to just that retailer. The search value is
+ * set BEFORE navigating, since router('browse') already triggers
+ * applyFilters() internally via renderBrowse() -- setting it first means
+ * that first render is already correctly filtered, with no flash of
+ * unfiltered results and no redundant second fetch.
+ */
+/**
+ * Navigate to Browse fresh, with any previous search/filter cleared. Used by
+ * every plain "Browse Cards" entry point (nav, hero, CTAs, empty states) so
+ * a stale filter from a previous retailer-tile click never leaks into a
+ * general browse visit. filterByBrand() is the one deliberate exception --
+ * it sets the search value on purpose.
+ */
+function goToBrowse() {
+    const input = document.getElementById('searchInput');
+    if (input) input.value = '';
+    AppState.activeCategory = null;
+    router('browse');
+}
+
+async function filterByBrand(brand) {
+    const browseSearchInput = document.getElementById('searchInput');
+    if (browseSearchInput) browseSearchInput.value = brand;
+    await router('browse');
 }
 
 const PAGE_SECTION_MAP = {
@@ -72,19 +118,145 @@ const PAGE_SECTION_MAP = {
     admin: 'admin-section',
     privacy: 'privacy-section',
     terms: 'terms-section',
-    'how-it-works': 'how-it-works-section'
+    'how-it-works': 'how-it-works-section',
+    contact: 'contact-section',
+    about: 'about-section',
+    'not-found': 'not-found-section'
+};
+
+/* Clean-URL routing (History API). Every page above maps to a real path;
+   vercel.json rewrites all non-static/non-api paths to index.html so these
+   resolve correctly on hard refresh and direct link too. */
+const PAGE_TO_PATH = {
+    home: '/',
+    browse: '/browse',
+    listing: '/listing',
+    checkout: '/checkout',
+    login: '/login',
+    signup: '/signup',
+    'forgot-password': '/forgot-password',
+    'reset-password': '/reset-password',
+    orders: '/my-orders',
+    'seller-dashboard': '/seller-dashboard',
+    sell: '/sell',
+    admin: '/admin-dashboard',
+    privacy: '/privacy',
+    terms: '/terms',
+    'how-it-works': '/how-it-works',
+    contact: '/contact',
+    about: '/about',
+    'not-found': '/404'
+};
+
+const PATH_TO_PAGE = Object.fromEntries(Object.entries(PAGE_TO_PATH).map(([page, path]) => [path, page]));
+
+const PAGE_TITLES = {
+    home: "Giftlio | New Zealand's Gift Card Marketplace",
+    browse: 'Browse Gift Cards — Giftlio',
+    listing: 'Gift Card Details — Giftlio',
+    checkout: 'Checkout — Giftlio',
+    login: 'Log In — Giftlio',
+    signup: 'Create Account — Giftlio',
+    'forgot-password': 'Reset Password — Giftlio',
+    'reset-password': 'Set New Password — Giftlio',
+    orders: 'My Orders — Giftlio',
+    'seller-dashboard': 'Seller Dashboard — Giftlio',
+    sell: 'Sell a Gift Card — Giftlio',
+    admin: 'Admin — Giftlio',
+    privacy: 'Privacy Policy — Giftlio',
+    terms: 'Terms &amp; Conditions — Giftlio',
+    'how-it-works': 'How It Works — Giftlio',
+    contact: 'Contact Us — Giftlio',
+    about: 'About Giftlio',
+    'not-found': 'Page Not Found — Giftlio'
+};
+
+function setPageTitle(page) {
+    const raw = PAGE_TITLES[page] || PAGE_TITLES.home;
+    // Titles are defined with HTML entities above for readability; decode
+    // for the actual document.title (not rendered as HTML there).
+    const el = document.createElement('textarea');
+    el.innerHTML = raw;
+    document.title = el.value;
+}
+
+/**
+ * Category groupings. Categories are NOT a real column in the database --
+ * listings only have a `brand`. Each category here is just a curated group
+ * of retailers, with an honest note on how balance verification actually
+ * works for that group (matters for buyer trust, per real research into
+ * each retailer's balance-check process).
+ */
+const CATEGORIES = {
+    'food-groceries': {
+        label: 'Food & Groceries',
+        brands: ['Woolworths', 'New World'],
+        keywords: ['food', 'grocery', 'groceries', 'supermarket'],
+        verification: 'manual',
+        note: 'New World balance checks require a Foodstuffs account or in-store verification, so these cards are confirmed through our manual process.'
+    },
+    'retail-fashion': {
+        label: 'Retail & Fashion',
+        brands: ['The Warehouse', 'Farmers', 'Briscoes'],
+        keywords: ['retail', 'fashion', 'clothing', 'clothes'],
+        verification: 'instant',
+        note: 'All three retailers have official online balance checkers.'
+    },
+    'home-garden': {
+        label: 'Home & Garden',
+        brands: ['The Warehouse', 'Briscoes'],
+        keywords: ['home', 'garden', 'homeware'],
+        verification: 'instant',
+        note: 'Both retailers stock homeware and have official online balance checkers.'
+    },
+    electronics: {
+        label: 'Electronics',
+        brands: ['Noel Leeming', 'PB Tech'],
+        keywords: ['electronics', 'tech', 'technology', 'gadgets'],
+        verification: 'manual',
+        note: 'PB Tech requires adding an item to cart and applying the card to check balance -- more manual, but still verifiable.'
+    },
+    'health-beauty': {
+        label: 'Health & Beauty',
+        brands: ['Farmers'],
+        keywords: ['health', 'beauty', 'cosmetics', 'makeup'],
+        verification: 'instant',
+        note: 'Farmers stocks beauty products alongside fashion, with an official online balance checker.'
+    }
 };
 
 const BRAND_COLORS = {
-    'The Warehouse': '#0073e6',
-    Countdown: '#e4002b',
+    'The Warehouse': '#E4002B',
+    Woolworths: '#1B7339',
     'New World': '#00843d',
-    Farmers: '#c8102e',
+    Farmers: '#E6007E',
     'Noel Leeming': '#0033a0',
     Briscoes: '#e31837',
     'Rebel Sport': '#1a1a1a',
-    'PB Tech': '#ff6600'
+    'PB Tech': '#ff6600',
+    "Pak'nSave": '#FFD100'
 };
+
+// Pak'nSave is yellow-and-black, not yellow-and-white -- badge text color
+// needs to flip for this one brand so it's actually readable/on-brand.
+const BRAND_TEXT_COLORS = {
+    "Pak'nSave": '#000000'
+};
+
+/**
+ * Renders a retailer badge: bold retailer name on their real brand color.
+ * We can't embed actual trademarked retailer logos (Wikimedia's licence for
+ * those images doesn't extend to commercial reuse in an unaffiliated
+ * marketplace product), so this styled text badge is the permanent,
+ * legally-safe treatment -- not a temporary fallback. max-height: 40px per
+ * spec, sized to sit cleanly in a card header.
+ */
+function retailerBadgeHTML(brand) {
+    const safeBrand = escapeHtml(brand);
+    const color = BRAND_COLORS[brand] || '#10142E';
+    const textColor = BRAND_TEXT_COLORS[brand] || '#ffffff';
+    return `<span class="retailer-badge" style="background:${color};color:${textColor}">${safeBrand}</span>`;
+}
 
 const STATUS_MAP = {
     submission: {
@@ -146,9 +318,9 @@ function normalizeCheckoutStep(step) {
     return Math.max(DEFAULT_CHECKOUT_STEP, Math.min(MAX_CHECKOUT_STEP, parsedStep));
 }
 
-function getPageFromHash() {
-    const page = window.location.hash.replace('#', '');
-    return PAGE_SECTION_MAP[page] ? page : 'home';
+function getPageFromPath() {
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    return PATH_TO_PAGE[path] || 'not-found';
 }
 
 function buildRouteState(page, routeState = {}) {
@@ -171,10 +343,11 @@ function buildRouteState(page, routeState = {}) {
 }
 
 function syncHistory(page, historyMode = 'replace', routeState = null) {
+    setPageTitle(page);
     if (historyMode === 'none') return;
 
     const nextState = routeState ? { ...routeState, page } : buildRouteState(page);
-    const nextUrl = `#${page}`;
+    const nextUrl = PAGE_TO_PATH[page] || '/';
 
     if (historyMode === 'replace') {
         window.history.replaceState(nextState, '', nextUrl);
@@ -212,6 +385,23 @@ function clearErrors() {
     document.querySelectorAll('.error-msg').forEach((e) => {
         e.textContent = '';
     });
+    document.querySelectorAll('.field-error').forEach((el) => {
+        el.classList.remove('field-error');
+    });
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(email) {
+    return EMAIL_PATTERN.test(email.trim());
+}
+
+/** Sets an inline error message and a red border on the matching field. */
+function setFieldError(inputId, errorId, message) {
+    const input = document.getElementById(inputId);
+    const errorEl = document.getElementById(errorId);
+    if (input) input.classList.add('field-error');
+    if (errorEl) errorEl.textContent = message;
 }
 
 function showError(error, fallback = 'Something went wrong. Please try again.') {
@@ -327,7 +517,7 @@ async function handleAuthStateChange(event, session) {
     if (event === 'SIGNED_OUT') {
         AppState.currentUser = null;
         updateNavForUser();
-        if (getPageFromHash() !== 'home') router('home', { historyMode: 'replace' });
+        if (getPageFromPath() !== 'home') router('home', { historyMode: 'replace' });
         return;
     }
 
@@ -375,22 +565,22 @@ async function handleSignup() {
     let hasError = false;
 
     if (name.length < 2) {
-        document.getElementById('signupNameError').textContent = 'Name must be at least 2 characters';
+        setFieldError('signupName', 'signupNameError', 'Name must be at least 2 characters');
         hasError = true;
     }
 
-    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-        document.getElementById('signupEmailError').textContent = 'Please enter a valid email';
+    if (!isValidEmail(email)) {
+        setFieldError('signupEmail', 'signupEmailError', 'Please enter a valid email');
         hasError = true;
     }
 
     if (password.length < 8) {
-        document.getElementById('signupPasswordError').textContent = 'Password must be at least 8 characters';
+        setFieldError('signupPassword', 'signupPasswordError', 'Password must be at least 8 characters');
         hasError = true;
     }
 
     if (password !== confirm) {
-        document.getElementById('signupConfirmError').textContent = 'Passwords do not match';
+        setFieldError('signupConfirm', 'signupConfirmError', 'Passwords do not match');
         hasError = true;
     }
 
@@ -449,6 +639,20 @@ async function handleLogin() {
     const email = document.getElementById('loginEmail').value.trim().toLowerCase();
     const password = document.getElementById('loginPassword').value;
 
+    let hasError = false;
+    if (!email) {
+        setFieldError('loginEmail', 'loginEmailError', 'Enter your email address');
+        hasError = true;
+    } else if (!isValidEmail(email)) {
+        setFieldError('loginEmail', 'loginEmailError', 'Enter a valid email address');
+        hasError = true;
+    }
+    if (!password) {
+        setFieldError('loginPassword', 'loginPasswordError', 'Enter your password');
+        hasError = true;
+    }
+    if (hasError) return;
+
     try {
         await withLoading(async () => {
             const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -459,12 +663,22 @@ async function handleLogin() {
             router('home');
         });
     } catch (error) {
-        document.getElementById('loginPasswordError').textContent = 'Invalid email or password';
+        setFieldError('loginPassword', 'loginPasswordError', 'Invalid email or password');
     }
 }
 
 async function handleForgot() {
+    clearErrors();
     const email = document.getElementById('forgotEmail').value.trim();
+
+    if (!email) {
+        setFieldError('forgotEmail', 'forgotEmailError', 'Enter your email address');
+        return;
+    }
+    if (!isValidEmail(email)) {
+        setFieldError('forgotEmail', 'forgotEmailError', 'Enter a valid email address');
+        return;
+    }
 
     try {
         await withLoading(async () => {
@@ -483,8 +697,7 @@ async function handleForgot() {
 }
 
 async function handleResetPassword() {
-    document.getElementById('resetPasswordError').textContent = '';
-    document.getElementById('resetPasswordConfirmError').textContent = '';
+    clearErrors();
 
     const password = document.getElementById('resetPassword').value;
     const confirm = document.getElementById('resetPasswordConfirm').value;
@@ -492,12 +705,12 @@ async function handleResetPassword() {
     let hasError = false;
 
     if (password.length < 8) {
-        document.getElementById('resetPasswordError').textContent = 'Password must be at least 8 characters';
+        setFieldError('resetPassword', 'resetPasswordError', 'Password must be at least 8 characters');
         hasError = true;
     }
 
     if (password !== confirm) {
-        document.getElementById('resetPasswordConfirmError').textContent = 'Passwords do not match';
+        setFieldError('resetPasswordConfirm', 'resetPasswordConfirmError', 'Passwords do not match');
         hasError = true;
     }
 
@@ -552,21 +765,62 @@ async function getActiveListings() {
     return (data || []).map(listingRowToView);
 }
 
+/**
+ * Looks up how a brand's balance gets verified, using CATEGORIES as the
+ * source of truth. Brands not in any defined category (Rebel Sport,
+ * Pak'nSave -- neither was covered by the verified category research)
+ * default to "manual" rather than assuming instant, since that hasn't
+ * actually been confirmed for them.
+ */
+function getBrandVerification(brand) {
+    for (const cat of Object.values(CATEGORIES)) {
+        if (cat.brands.includes(brand)) {
+            return { verification: cat.verification, note: cat.note };
+        }
+    }
+    return {
+        verification: 'manual',
+        note: `${brand} balance is confirmed through our manual verification process.`
+    };
+}
+
 function renderListingCard(listing) {
-    const safeBrand = escapeHtml(listing.brand);
     const safeSeller = escapeHtml(listing.seller || 'Verified Seller');
+    const { verification, note } = getBrandVerification(listing.brand);
+    const isInstant = verification === 'instant';
+    const verifyBadge = isInstant
+        ? `<span class="card-verify instant" title="${escapeHtml(note)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Instant verified</span>`
+        : `<span class="card-verify manual" title="${escapeHtml(note)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Manually verified</span>`;
+
+    // PB Tech's balance-check process (add to cart, apply the card) is
+    // different enough from a standard online checker that buyers might
+    // wonder why -- a quick explanation reassures them the result is the
+    // same regardless of method.
+    const infoTooltip =
+        listing.brand === 'PB Tech'
+            ? `<span class="card-info-tip" tabindex="0" role="button" aria-label="How this card was verified">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <span class="card-info-tip-bubble">Verified by adding the card to a PB Tech cart and applying it -- a more manual check, but just as reliable.</span>
+               </span>`
+            : '';
 
     return `
         <div class="listing-card" onclick="viewListing('${listing.id}')">
-            <div class="listing-card-header" style="border-left: 4px solid ${BRAND_COLORS[listing.brand] || '#10142E'}">
-                <h3>${safeBrand}</h3>
+            <div class="listing-card-header">
+                ${retailerBadgeHTML(listing.brand)}
+                ${verifyBadge}
             </div>
             <div class="listing-card-body">
                 <div class="listing-value">${formatCurrency(listing.faceValue)}</div>
                 <div class="listing-price">${formatCurrency(listing.salePrice)}</div>
-                <span class="discount-badge">Save ${listing.discount}%</span>
-                <div class="listing-seller-verified"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}</div>
-                <button class="btn btn-primary" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>
+                <div class="listing-meta-row">
+                    <span class="discount-badge">Save ${listing.discount}%</span>
+                    <span class="gst-note">GST included</span>
+                </div>
+                <div class="listing-seller-verified">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}${infoTooltip}
+                </div>
+                <button class="btn btn-primary" aria-label="View ${escapeHtml(listing.brand)} gift card, ${formatCurrency(listing.salePrice)}, save ${listing.discount} percent" onclick="event.stopPropagation(); viewListing('${listing.id}')">Buy Now</button>
             </div>
         </div>
     `;
@@ -588,14 +842,71 @@ function renderSkeletonCards(count) {
         .join('');
 }
 
+/** Skeleton placeholders matching .summary-card, for dashboard/admin stats. */
+function renderSkeletonStatCards(count) {
+    return Array.from({ length: count })
+        .map(
+            () => `
+        <div class="summary-card" aria-hidden="true">
+            <div class="skel skel-line" style="width:70%; height:12px;"></div>
+            <div class="skel skel-line" style="width:45%; height:26px; margin-top:10px;"></div>
+        </div>
+    `
+        )
+        .join('');
+}
+
+/** Skeleton table rows matching a real <table>'s column count, for orders,
+    submissions, and admin tables while data loads. */
+function renderSkeletonTableRows(columnCount, rowCount = 4) {
+    const cells = Array.from({ length: columnCount })
+        .map(() => `<td><div class="skel skel-line" style="width:${60 + Math.floor(Math.random() * 30)}%;"></div></td>`)
+        .join('');
+    return `
+        <table aria-hidden="true">
+            <tbody>
+                ${Array.from({ length: rowCount })
+                    .map(() => `<tr>${cells}</tr>`)
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+/** Skeleton lines for simple list content like "Recent Activity". */
+function renderSkeletonLines(count = 4) {
+    return Array.from({ length: count })
+        .map(
+            () => `<div class="skel skel-line" style="width:${70 + Math.floor(Math.random() * 25)}%; height:16px; margin-bottom:12px;"></div>`
+        )
+        .join('');
+}
+
 async function renderHome() {
-    const brands = ['The Warehouse', 'Countdown', 'New World', 'Farmers', 'Noel Leeming', 'Briscoes', 'Rebel Sport', 'PB Tech'];
+    const categoryGrid = document.getElementById('categoryGrid');
+    categoryGrid.innerHTML = Object.entries(CATEGORIES)
+        .map(([key, cat]) => {
+            const isInstant = cat.verification === 'instant';
+            const verifyBadge = isInstant
+                ? `<span class="cat-verify instant"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Instant online check</span>`
+                : `<span class="cat-verify manual"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Manually verified</span>`;
+            return `
+        <div class="category-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(cat.label)} category: ${cat.brands.map(escapeHtml).join(', ')}" onclick="filterByCategory('${key}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByCategory('${key}');}">
+            <h3>${escapeHtml(cat.label)}</h3>
+            <p class="cat-brands">${cat.brands.map(escapeHtml).join(' · ')}</p>
+            ${verifyBadge}
+        </div>
+    `;
+        })
+        .join('');
+
+    const brands = ['The Warehouse', 'Woolworths', "Pak'nSave", 'New World', 'Farmers', 'Noel Leeming', 'Briscoes', 'Rebel Sport', 'PB Tech'];
     const brandsGrid = document.getElementById('brandsGrid');
     brandsGrid.innerHTML = brands
         .map(
             (b) => `
-        <div class="brand-card" onclick="filterByBrand('${b}')" style="border-top: 4px solid ${BRAND_COLORS[b] || '#10142E'}">
-            <h3>${b}</h3>
+        <div class="brand-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(b)} gift cards" onclick="filterByBrand('${escapeJsString(b)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByBrand('${escapeJsString(b)}');}">
+            ${retailerBadgeHTML(b)}
             <p>Up to 20% off</p>
         </div>
     `
@@ -628,16 +939,72 @@ async function renderBrowse() {
     await applyFilters();
 }
 
+/**
+ * Real text search across brand name, near-value price matching, and
+ * category keywords -- not just exact brand substring matching.
+ * "$20" or "20" matches cards within $5 of that face value or sale price.
+ * "grocery" matches any listing whose brand belongs to a category whose
+ * label/keywords mention groceries (Woolworths, New World), etc.
+ */
+const NUMBER_WORDS = {
+    ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, hundred: 100
+};
+
+function extractSearchNumber(q) {
+    const digitMatch = q.match(/\$?\s*(\d+(?:\.\d+)?)/);
+    if (digitMatch) return parseFloat(digitMatch[1]);
+
+    // "twenty five" (two words) is common for $25 -- check compound forms
+    // before single words, so "twenty five" doesn't just match "twenty".
+    const compact = q.replace(/[\s-]+/g, '');
+    if (compact.includes('twentyfive')) return 25;
+    if (compact.includes('seventyfive')) return 75;
+
+    for (const [word, value] of Object.entries(NUMBER_WORDS)) {
+        if (q.includes(word)) return value;
+    }
+    return null;
+}
+
+function listingMatchesSearch(listing, rawQuery) {
+    const q = rawQuery.toLowerCase().trim();
+    if (!q) return true;
+
+    if (listing.brand.toLowerCase().includes(q)) return true;
+
+    const target = extractSearchNumber(q);
+    if (target !== null) {
+        const tolerance = 5;
+        if (Math.abs(listing.faceValue - target) <= tolerance) return true;
+        if (Math.abs(listing.salePrice - target) <= tolerance) return true;
+    }
+
+    for (const cat of Object.values(CATEGORIES)) {
+        const keywordMatch = cat.keywords.some((kw) => q.includes(kw) || kw.includes(q));
+        if (keywordMatch && cat.brands.includes(listing.brand)) return true;
+    }
+
+    return false;
+}
+
 async function applyFilters() {
     try {
         await withLoading(async () => {
-            let listings = await getActiveListings();
-            const search = document.getElementById('searchInput').value.toLowerCase();
+            const allListings = await getActiveListings();
+            let listings = allListings;
+            const search = document.getElementById('searchInput').value;
             const discountFilter = document.getElementById('discountFilter').value;
             const sort = document.getElementById('sortSelect').value;
 
+            // Category filter and text search are independent dimensions --
+            // they stack (AND together), neither resets the other.
+            if (AppState.activeCategory && CATEGORIES[AppState.activeCategory]) {
+                const allowedBrands = CATEGORIES[AppState.activeCategory].brands;
+                listings = listings.filter((l) => allowedBrands.includes(l.brand));
+            }
+
             if (search) {
-                listings = listings.filter((l) => l.brand.toLowerCase().includes(search));
+                listings = listings.filter((l) => listingMatchesSearch(l, search));
             }
 
             if (discountFilter) {
@@ -655,6 +1022,7 @@ async function applyFilters() {
             }
 
             document.getElementById('resultsCount').textContent = `${listings.length} card${listings.length !== 1 ? 's' : ''} found`;
+            renderActiveCategoryBanner();
 
             const grid = document.getElementById('browseGrid');
             const empty = document.getElementById('browseEmpty');
@@ -662,6 +1030,7 @@ async function applyFilters() {
             if (listings.length === 0) {
                 grid.innerHTML = '';
                 empty.classList.remove('hidden');
+                renderBrowseEmptyState(allListings.length === 0);
             } else {
                 empty.classList.add('hidden');
                 grid.innerHTML = listings.map((l) => renderListingCard(l)).join('');
@@ -672,10 +1041,69 @@ async function applyFilters() {
     }
 }
 
+function renderActiveCategoryBanner() {
+    const banner = document.getElementById('activeCategoryBanner');
+    if (!banner) return;
+    const cat = AppState.activeCategory && CATEGORIES[AppState.activeCategory];
+    if (!cat) {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+        return;
+    }
+    banner.classList.remove('hidden');
+    banner.innerHTML = `
+        <span>Showing <strong>${escapeHtml(cat.label)}</strong> (${cat.brands.map(escapeHtml).join(', ')})</span>
+        <button onclick="clearCategoryFilter()">Clear<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg></button>
+    `;
+}
+
+function clearCategoryFilter() {
+    AppState.activeCategory = null;
+    applyFilters();
+}
+
+/**
+ * Called when a category tile is clicked. Navigates to Browse with that
+ * category's retailer group applied as a filter. Does NOT touch the search
+ * text box -- category and search compose together rather than resetting
+ * each other.
+ */
+async function filterByCategory(categoryKey) {
+    AppState.activeCategory = categoryKey;
+    await router('browse');
+}
+
+/**
+ * Two genuinely different empty states, not one generic message:
+ * - Database has zero listings at all (pre-launch / nothing sold yet) ->
+ *   invite them to be the first seller, link to /sell.
+ * - Database has listings, but the current search/filter matched none ->
+ *   offer to clear filters instead.
+ */
+function renderBrowseEmptyState(isDatabaseEmpty) {
+    const empty = document.getElementById('browseEmpty');
+    if (isDatabaseEmpty) {
+        empty.innerHTML = `
+            <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1.5"/><rect x="3" y="9" width="18" height="4" rx="1"/><path d="M10.5 9V21"/><path d="M13.5 9V21"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z"/></svg></div>
+            <p class="empty-title">No gift cards available right now</p>
+            <p class="empty-sub">Be the first to sell one! It only takes a couple of minutes, and every card is manually verified before it goes live.</p>
+            <button class="btn btn-primary" onclick="router('sell')">Sell a Gift Card</button>
+        `;
+    } else {
+        empty.innerHTML = `
+            <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div>
+            <p class="empty-title">No gift cards found</p>
+            <p class="empty-sub">Try a different search term, or clear your filters to see everything on offer</p>
+            <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+        `;
+    }
+}
+
 function clearFilters() {
     document.getElementById('searchInput').value = '';
     document.getElementById('discountFilter').value = '';
     document.getElementById('sortSelect').value = 'newest';
+    AppState.activeCategory = null;
     applyFilters();
 }
 
@@ -708,9 +1136,11 @@ async function viewListing(id, options = {}) {
 
             document.getElementById('detailLayout').innerHTML = `
                 <div class="detail-left">
-                    <div class="detail-brand">${safeBrand}</div>
+                    <h1 class="visually-hidden">${escapeHtml(listing.brand)} gift card, ${formatCurrency(listing.faceValue)} value</h1>
+                    <div class="detail-brand-badge">${retailerBadgeHTML(listing.brand)}</div>
                     <div class="detail-value">${formatCurrency(listing.faceValue)}</div>
                     <div class="detail-price">${formatCurrency(listing.salePrice)}</div>
+                    <span class="gst-note">GST included</span>
                     <span class="detail-discount">You save ${formatCurrency(listing.faceValue - listing.salePrice)} (${listing.discount}%)</span>
                     <div style="margin-top: 16px;">
                         <span class="badge badge-green">Available</span>
@@ -861,16 +1291,31 @@ function renderCheckoutSummary() {
             <span>Total</span>
             <span>${formatCurrency(total)}</span>
         </div>
+        <p class="gst-note" style="text-align: right; margin-top: 4px;">GST included</p>
     `;
 }
 
 function goToCheckoutStep(step) {
     if (step === 3) {
+        clearErrors();
         const name = document.getElementById('buyerName').value.trim();
         const email = document.getElementById('buyerEmail').value.trim();
         const phone = document.getElementById('buyerPhone').value.trim();
 
-        if (!name || !email || !phone) return;
+        let hasError = false;
+        if (name.length < 2) {
+            setFieldError('buyerName', 'nameError', 'Enter your full name');
+            hasError = true;
+        }
+        if (!isValidEmail(email)) {
+            setFieldError('buyerEmail', 'emailError', 'Enter a valid email address');
+            hasError = true;
+        }
+        if (phone.length < 8) {
+            setFieldError('buyerPhone', 'phoneError', 'Enter a valid phone number');
+            hasError = true;
+        }
+        if (hasError) return;
 
         AppState.currentOrder.buyerName = name;
         AppState.currentOrder.buyerEmail = email;
@@ -883,7 +1328,9 @@ function goToCheckoutStep(step) {
 }
 
 async function placeOrder() {
+    document.getElementById('termsCheckError').textContent = '';
     if (!document.getElementById('termsCheck').checked) {
+        document.getElementById('termsCheckError').textContent = 'You must agree to the Terms and Conditions and Privacy Policy to continue';
         showToast('warning', 'Please agree to the Terms and Conditions');
         return;
     }
@@ -938,11 +1385,12 @@ function handleStripeRedirectReturn() {
     if (!checkoutResult) return;
 
     // Clean the query params out of the URL so refreshing doesn't re-trigger this.
-    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || '#home'}`;
+    // The subsequent router() call below sets the final correct path.
+    const cleanUrl = `${window.location.origin}${window.location.pathname}`;
     window.history.replaceState(window.history.state, '', cleanUrl);
 
     if (checkoutResult === 'success') {
-        showToast('success', "Payment received! We're finalizing your order now — it will appear in My Orders shortly.");
+        showToast('success', "Payment received! We're finalising your order now — it will appear in My Orders shortly.");
         router('orders', { historyMode: 'replace' });
     } else if (checkoutResult === 'cancelled') {
         showToast('info', 'Checkout was cancelled. Your card was not charged.');
@@ -956,6 +1404,10 @@ async function renderOrders() {
         return;
     }
 
+    const table = document.getElementById('ordersTable');
+    document.getElementById('ordersEmpty').classList.add('hidden');
+    table.innerHTML = renderSkeletonTableRows(7);
+
     try {
         await withLoading(async () => {
             const { data, error } = await supabaseClient
@@ -967,7 +1419,6 @@ async function renderOrders() {
             if (error) throw error;
 
             const orders = (data || []).map(orderRowToView);
-            const table = document.getElementById('ordersTable');
             const empty = document.getElementById('ordersEmpty');
 
             if (orders.length === 0) {
@@ -1002,13 +1453,13 @@ async function renderOrders() {
                             .map(
                                 (o) => `
                             <tr>
-                                <td>${o.id}</td>
-                                <td>${o.brand}</td>
-                                <td>${formatCurrency(o.faceValue)}</td>
-                                <td>${formatCurrency(o.total)}</td>
-                                <td>${new Date(o.date).toLocaleDateString('en-NZ')}</td>
-                                <td><span class="badge ${badgeClass[o.status] || 'badge-gray'}">${o.status}</span></td>
-                                <td><button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="viewOrderDetail('${o.dbId}')">View</button></td>
+                                <td data-label="Order ID">${o.id}</td>
+                                <td data-label="Brand">${o.brand}</td>
+                                <td data-label="Value">${formatCurrency(o.faceValue)}</td>
+                                <td data-label="Price Paid">${formatCurrency(o.total)}</td>
+                                <td data-label="Date">${new Date(o.date).toLocaleDateString('en-NZ')}</td>
+                                <td data-label="Status"><span class="badge ${badgeClass[o.status] || 'badge-gray'}">${o.status}</span></td>
+                                <td data-label="Actions"><button class="btn btn-outline btn-sm" onclick="viewOrderDetail('${o.dbId}')">View</button></td>
                             </tr>
                         `
                             )
@@ -1037,7 +1488,7 @@ async function viewOrderDetail(orderDbId) {
                     <p><strong>Order ID:</strong> ${order.id}</p>
                     <p><strong>Brand:</strong> ${order.brand}</p>
                     <p><strong>Card Value:</strong> ${formatCurrency(order.faceValue)}</p>
-                    <p><strong>Price Paid:</strong> ${formatCurrency(order.total)} (includes ${formatCurrency(order.serviceFee)} fee)</p>
+                    <p><strong>Price Paid:</strong> ${formatCurrency(order.total)} (includes ${formatCurrency(order.serviceFee)} fee, GST included)</p>
                     <p><strong>Purchase Date:</strong> ${new Date(order.date).toLocaleString('en-NZ')}</p>
                     <p><strong>Status:</strong> <span class="badge ${order.status === 'Pending Verification' ? 'badge-yellow' : order.status === 'Delivered' ? 'badge-green' : 'badge-red'}">${order.status}</span></p>
                     <p><strong>Delivery Email:</strong> ${order.buyerEmail}</p>
@@ -1098,6 +1549,12 @@ async function renderSellerDashboard() {
         return;
     }
 
+    document.getElementById('sellerOverviewEmpty').classList.add('hidden');
+    document.getElementById('sellerOverviewStats').classList.add('hidden');
+    const skeletonEl = document.getElementById('sellerOverviewSkeleton');
+    skeletonEl.innerHTML = renderSkeletonStatCards(4);
+    skeletonEl.classList.remove('hidden');
+
     try {
         await withLoading(async () => {
             const [{ data: submissionsData, error: submissionsError }, { data: listingsData, error: listingsError }] = await Promise.all([
@@ -1118,6 +1575,20 @@ async function renderSellerDashboard() {
 
             const submissions = (submissionsData || []).map(submissionRowToView);
             const listings = (listingsData || []).map(listingRowToView);
+
+            document.getElementById('sellerOverviewSkeleton').classList.add('hidden');
+
+            const emptyState = document.getElementById('sellerOverviewEmpty');
+            const statsView = document.getElementById('sellerOverviewStats');
+
+            if (submissions.length === 0) {
+                emptyState.classList.remove('hidden');
+                statsView.classList.add('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            statsView.classList.remove('hidden');
 
             const totalSubmitted = submissions.length;
             const cardsSold = listings.filter((l) => l.status === 'sold').length;
@@ -1153,6 +1624,7 @@ async function renderSellerDashboard() {
             document.querySelector('.sidebar-btn')?.classList.add('active');
         });
     } catch (error) {
+        document.getElementById('sellerOverviewSkeleton').classList.add('hidden');
         showError(error, 'Unable to load seller dashboard.');
     }
 }
@@ -1169,6 +1641,8 @@ async function handleSubmission() {
         return;
     }
 
+    clearErrors();
+
     const brand = document.getElementById('subBrand').value;
     const value = parseFloat(document.getElementById('subValue').value);
     const balance = parseFloat(document.getElementById('subBalance').value);
@@ -1177,10 +1651,36 @@ async function handleSubmission() {
     const pin = document.getElementById('subPin').value;
     const terms = document.getElementById('subTerms').checked;
 
-    if (!brand || !value || !balance || !expiry || !cardNum || !terms) {
-        showToast('warning', 'Please fill in all required fields');
-        return;
+    let hasError = false;
+    if (!brand) {
+        setFieldError('subBrand', 'subBrandError', 'Select which retailer this card is from');
+        hasError = true;
     }
+    if (!value || value <= 0) {
+        setFieldError('subValue', 'subValueError', 'Enter the card\'s original value');
+        hasError = true;
+    }
+    if (!balance || balance <= 0) {
+        setFieldError('subBalance', 'subBalanceError', 'Enter the current remaining balance');
+        hasError = true;
+    }
+    if (balance > value) {
+        setFieldError('subBalance', 'subBalanceError', 'Balance can\'t be more than the card\'s original value');
+        hasError = true;
+    }
+    if (!expiry) {
+        setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date');
+        hasError = true;
+    }
+    if (!cardNum) {
+        setFieldError('subCardNum', 'subCardNumError', 'Enter the gift card number');
+        hasError = true;
+    }
+    if (!terms) {
+        document.getElementById('subTermsError').textContent = 'You must confirm this before submitting';
+        hasError = true;
+    }
+    if (hasError) return;
 
     const submissionPublicId = generatePublicId('SUB');
 
@@ -1216,6 +1716,9 @@ async function handleSubmission() {
 
 async function renderSellerSubmissions() {
     if (!AppState.currentUser) return;
+
+    document.getElementById('submissionsTable').innerHTML = renderSkeletonTableRows(3, 3);
+    document.getElementById('submissionsEmpty').classList.add('hidden');
 
     try {
         await withLoading(async () => {
@@ -1270,13 +1773,24 @@ function renderSubmissionCard(s, listingStatus) {
     const isRejected = s.status === 'Rejected';
     const isPending = s.status === 'Pending Review';
     const isApproved = s.status === 'Approved' || s.status === 'Listed' || s.status === 'Sold';
+    const isListed = isApproved && Boolean(listingStatus);
+    const isSold = listingStatus === 'sold';
 
-    // Stage 1: Submitted -- always true once the row exists.
-    // Stage 2: Verified -- true once no longer pending review (approved or rejected).
-    // Stage 3: Payout Sent -- true as soon as approved, since Instant Sell pays at
-    // approval time, not after a later sale.
-    const stage2Done = !isPending;
-    const stage3Done = isApproved;
+    // Five real stages, submitted through payout sent -- but ordered to
+    // match what's actually true for Instant Sell: payout happens at
+    // approval, not after a later resale. "Listed" and "Sold" are shown
+    // afterward as transparency into what Giftlio does with the card next,
+    // not as conditions the seller's payout depends on.
+    const stages = [
+        { key: 'submitted', label: 'Submitted', done: true },
+        { key: 'verified', label: 'Being Verified', done: !isPending },
+        { key: 'payout', label: 'Payout Sent', done: isApproved },
+        { key: 'listed', label: 'Listed for Resale', done: isListed },
+        { key: 'sold', label: 'Sold to Buyer', done: isSold }
+    ];
+    const doneCount = stages.filter((st) => st.done).length;
+    const currentIndex = stages.findIndex((st) => !st.done);
+    const fillPercent = (Math.max(doneCount - 1, 0) / (stages.length - 1)) * 100;
 
     const badgeMap = { 'Pending Review': 'badge-yellow', Approved: 'badge-green', Rejected: 'badge-red', Listed: 'badge-blue', Sold: 'badge-green' };
 
@@ -1304,22 +1818,20 @@ function renderSubmissionCard(s, listingStatus) {
                 </div>
                 <span class="badge ${badgeMap[s.status]}">${s.status}</span>
             </div>
-            <div class="seller-timeline">
-                <div class="st-fill" style="width:${stage3Done ? '100%' : stage2Done ? '50%' : '0%'}"></div>
-                <div class="st-step done">
-                    <span class="st-dot">${TOAST_ICONS.success}</span>
-                    <p>Submitted</p>
-                </div>
-                <div class="st-step ${stage2Done ? 'done' : 'current'}">
-                    <span class="st-dot">${stage2Done ? TOAST_ICONS.success : '2'}</span>
-                    <p>Being Verified</p>
-                </div>
-                <div class="st-step ${stage3Done ? 'done' : ''}">
-                    <span class="st-dot">${stage3Done ? TOAST_ICONS.success : '3'}</span>
-                    <p>Payout Sent</p>
-                </div>
+            <div class="seller-timeline seller-timeline-5">
+                <div class="st-fill" style="width:${fillPercent}%"></div>
+                ${stages
+                    .map(
+                        (st, i) => `
+                    <div class="st-step ${st.done ? 'done' : i === currentIndex ? 'current' : ''}">
+                        <span class="st-dot">${st.done ? TOAST_ICONS.success : i + 1}</span>
+                        <p>${st.label}</p>
+                    </div>
+                `
+                    )
+                    .join('')}
             </div>
-            <p class="submission-offer">Your offer: <strong>${formatCurrency(s.offerAmount)}</strong>${stage3Done ? ' — paid out' : ' (paid once verified)'}</p>
+            <p class="submission-offer">Your offer: <strong>${formatCurrency(s.offerAmount)}</strong>${isApproved ? ' — paid out' : ' (paid once verified)'}</p>
             ${
                 listingStatus
                     ? `<p class="submission-resale-note">${listingStatus === 'sold' ? 'Giftlio has since resold this card.' : 'This card is now listed for resale on Giftlio.'}</p>`
@@ -1357,6 +1869,14 @@ async function renderAdmin() {
         return;
     }
 
+    document.getElementById('adminWelcomeEmpty').classList.add('hidden');
+    document.getElementById('adminStatsView').classList.add('hidden');
+    const adminSkeletonEl = document.getElementById('adminSkeleton');
+    adminSkeletonEl.innerHTML = renderSkeletonStatCards(4);
+    adminSkeletonEl.classList.remove('hidden');
+    document.getElementById('pendingTable').innerHTML = renderSkeletonTableRows(6);
+    document.getElementById('pendingEmpty').classList.add('hidden');
+
     try {
         await withLoading(async () => {
             const [usersRes, listingsRes, submissionsRes, ordersRes] = await Promise.all([
@@ -1375,6 +1895,22 @@ async function renderAdmin() {
             const listings = (listingsRes.data || []).map(listingRowToView);
             const submissions = (submissionsRes.data || []).map(submissionRowToView);
             const orders = (ordersRes.data || []).map(orderRowToView);
+
+            const welcomeEmpty = document.getElementById('adminWelcomeEmpty');
+            const statsView = document.getElementById('adminStatsView');
+            document.getElementById('adminSkeleton').classList.add('hidden');
+            // Truly blank slate: only the admin's own account exists, and
+            // nothing has ever been listed, submitted, or sold.
+            const isBlankSlate = users.length <= 1 && listings.length === 0 && submissions.length === 0 && orders.length === 0;
+
+            if (isBlankSlate) {
+                welcomeEmpty.classList.remove('hidden');
+                statsView.classList.add('hidden');
+                return;
+            }
+
+            welcomeEmpty.classList.add('hidden');
+            statsView.classList.remove('hidden');
 
             document.getElementById('adminTotalUsers').textContent = users.length;
             document.getElementById('adminActiveListings').textContent = listings.filter((l) => l.status === 'active').length;
@@ -1409,16 +1945,16 @@ async function renderAdmin() {
                                 .map(
                                     (s) => `
                                 <tr>
-                                    <td>${s.id}</td>
-                                    <td>${s.sellerName}</td>
-                                    <td>${s.brand}</td>
-                                    <td>${formatCurrency(s.faceValue)}</td>
-                                    <td>${formatCurrency(s.currentBalance)}</td>
-                                    <td>${s.expiryDate}</td>
-                                    <td>${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
-                                    <td>
-                                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="approveSubmission('${s.dbId}')">Approve</button>
-                                        <button class="btn btn-outline" style="padding: 6px 12px; font-size: 12px; margin-left: 4px; color: var(--red); border-color: var(--red);" onclick="rejectSubmission('${s.dbId}')">Reject</button>
+                                    <td data-label="ID">${s.id}</td>
+                                    <td data-label="Seller">${s.sellerName}</td>
+                                    <td data-label="Brand">${s.brand}</td>
+                                    <td data-label="Value">${formatCurrency(s.faceValue)}</td>
+                                    <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
+                                    <td data-label="Expiry">${s.expiryDate}</td>
+                                    <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
+                                    <td data-label="Actions">
+                                        <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Approve</button>
+                                        <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                                     </td>
                                 </tr>
                             `
@@ -1456,14 +1992,14 @@ async function renderAdmin() {
                                 .map(
                                     (o) => `
                                 <tr id="order-row-${o.dbId}">
-                                    <td>${o.id}</td>
-                                    <td>${escapeHtml(o.buyerName)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(o.buyerEmail)}</span></td>
-                                    <td>${escapeHtml(o.brand)}</td>
-                                    <td>${formatCurrency(o.faceValue)}</td>
-                                    <td>${formatCurrency(o.total)}</td>
-                                    <td>${new Date(o.date).toLocaleDateString('en-NZ')}</td>
-                                    <td>
-                                        <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="deliverOrder('${o.dbId}')">Deliver</button>
+                                    <td data-label="Order ID">${o.id}</td>
+                                    <td data-label="Buyer">${escapeHtml(o.buyerName)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(o.buyerEmail)}</span></td>
+                                    <td data-label="Brand">${escapeHtml(o.brand)}</td>
+                                    <td data-label="Value">${formatCurrency(o.faceValue)}</td>
+                                    <td data-label="Price Paid">${formatCurrency(o.total)}</td>
+                                    <td data-label="Date">${new Date(o.date).toLocaleDateString('en-NZ')}</td>
+                                    <td data-label="Action">
+                                        <button class="btn btn-primary btn-sm" onclick="deliverOrder('${o.dbId}')">Deliver</button>
                                     </td>
                                 </tr>
                             `
@@ -1492,13 +2028,13 @@ async function renderAdmin() {
                             .map(
                                 (l) => `
                             <tr>
-                                <td>${l.id.slice(0, 8)}</td>
-                                <td>${l.brand}</td>
-                                <td>${formatCurrency(l.faceValue)}</td>
-                                <td>${formatCurrency(l.salePrice)}</td>
-                                <td>${l.discount}%</td>
-                                <td>${l.seller}</td>
-                                <td><span class="badge ${l.status === 'active' ? 'badge-green' : l.status === 'sold' ? 'badge-blue' : 'badge-gray'}">${l.status}</span></td>
+                                <td data-label="ID">${l.id.slice(0, 8)}</td>
+                                <td data-label="Brand">${l.brand}</td>
+                                <td data-label="Value">${formatCurrency(l.faceValue)}</td>
+                                <td data-label="Price">${formatCurrency(l.salePrice)}</td>
+                                <td data-label="Discount">${l.discount}%</td>
+                                <td data-label="Seller">${l.seller}</td>
+                                <td data-label="Status"><span class="badge ${l.status === 'active' ? 'badge-green' : l.status === 'sold' ? 'badge-blue' : 'badge-gray'}">${l.status}</span></td>
                             </tr>
                         `
                             )
@@ -1529,10 +2065,10 @@ async function renderAdmin() {
                             .map(
                                 (u) => `
                             <tr>
-                                <td>${u.name}</td>
-                                <td>${u.email}</td>
-                                <td><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
-                                <td>${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
+                                <td data-label="Name">${u.name}</td>
+                                <td data-label="Email">${u.email}</td>
+                                <td data-label="Role"><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
+                                <td data-label="Joined">${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
                             </tr>
                         `
                             )
@@ -1542,6 +2078,7 @@ async function renderAdmin() {
             `;
         });
     } catch (error) {
+        document.getElementById('adminSkeleton').classList.add('hidden');
         showError(error, 'Unable to load admin dashboard.');
     }
 }
@@ -1697,7 +2234,7 @@ function checkAuthThen(page) {
 }
 
 async function restoreRoute(routeState = {}, historyMode = 'none') {
-    const page = Object.hasOwn(PAGE_SECTION_MAP, routeState.page) ? routeState.page : getPageFromHash();
+    const page = Object.hasOwn(PAGE_SECTION_MAP, routeState.page) ? routeState.page : getPageFromPath();
 
     if (page === 'listing') {
         const listingId = routeState.listingId || AppState.currentListing?.id;
@@ -1763,11 +2300,23 @@ async function initializeRouting() {
         return;
     }
 
-    await restoreRoute({ page: getPageFromHash() }, 'replace');
+    await restoreRoute({ page: getPageFromPath() }, 'replace');
 }
 
 async function router(page, options = {}) {
     const { historyMode = 'push', routeState = null } = options;
+
+    // Admin route guard -- runs before ANY section is made visible, so an
+    // unauthenticated or non-admin visitor never sees even a flash of admin
+    // UI. Unauthenticated -> login. Authenticated but not an admin -> home.
+    if (page === 'admin') {
+        if (!AppState.currentUser) {
+            return router('login', { historyMode: 'replace' });
+        }
+        if (AppState.currentUser.role !== 'admin') {
+            return router('home', { historyMode: 'replace' });
+        }
+    }
 
     document.querySelectorAll('.page-section').forEach((s) => {
         s.classList.remove('active');
@@ -1844,7 +2393,7 @@ function setupEventListeners() {
     });
 
     window.addEventListener('popstate', async (e) => {
-        await restoreRoute(e.state || { page: getPageFromHash() }, 'none');
+        await restoreRoute(e.state || { page: getPageFromPath() }, 'none');
     });
 
     supabaseClient.auth.onAuthStateChange((event, session) => {
@@ -1970,9 +2519,9 @@ async function initializeApp() {
     await checkAuth();
 
     // Password reset links land here with #access_token=...&type=recovery
-    // in the URL. This MUST be checked before initializeRouting() runs,
-    // because that function replaces the URL hash for normal navigation --
-    // which would otherwise erase the recovery token before it can be used.
+    // in the URL. Routing now uses real paths (pushState), not the hash, so
+    // this token is never touched by normal navigation -- but it's still
+    // checked before initializeRouting() runs, first thing, for safety.
     if (window.location.hash.includes('type=recovery')) {
         router('reset-password', { historyMode: 'replace' });
         return;
