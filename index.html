@@ -803,6 +803,12 @@
                 </div>
 
                 <div class="admin-section">
+                    <h2>Brand Discounts</h2>
+                    <p class="section-subtitle">Sets the buyer discount for Instant Sell listings, per retailer (0-25%). Applies to all new approvals immediately — no redeploy needed. Marketplace listings aren't affected; sellers set their own price there.</p>
+                    <div class="table-wrapper" id="brandDiscountsTable"></div>
+                </div>
+
+                <div class="admin-section">
                     <h2>All Listings</h2>
                     <div class="table-wrapper" id="allListingsTable"></div>
                 </div>
@@ -1111,6 +1117,7 @@
     <script src="supabase-client.js" defer></script>
     <div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
 
+    <script src="pricing-helper.js" defer></script>
     <script src="app.js" defer></script>
 </body>
 </html>
