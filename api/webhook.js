@@ -98,13 +98,55 @@ module.exports = async function handler(req, res) {
                     throw orderError;
                 }
             } else {
-                const { error: listingError } = await supabaseAdmin
+                const { data: updatedListing, error: listingError } = await supabaseAdmin
                     .from('listings')
                     .update({ status: 'sold', sold_at: new Date().toISOString(), updated_at: new Date().toISOString() })
                     .eq('id', metadata.listing_id)
-                    .eq('status', 'active');
+                    .eq('status', 'active')
+                    .select('seller_name, sale_mode')
+                    .single();
 
                 if (listingError) throw listingError;
+
+                // Card-sold admin notification. Queue-first, then attempt
+                // send, same pattern as api/send-notification.js -- a
+                // failed send here must never fail the webhook itself
+                // (Stripe would retry the whole order-processing flow).
+                try {
+                    const adminInbox = process.env.ADMIN_NOTIFY_EMAIL || 'giftlio.co.nz@gmail.com';
+                    const emailFrom = process.env.EMAIL_FROM || 'Giftlio <onboarding@resend.dev>';
+                    const subject = `Card Sold: ${metadata.brand} to ${metadata.buyer_name}`;
+                    const bodyHtml = `
+                        <p><strong>Retailer:</strong> ${metadata.brand}</p>
+                        <p><strong>Face Value:</strong> $${Number(metadata.face_value).toFixed(2)}</p>
+                        <p><strong>Sale Price:</strong> $${Number(metadata.sale_price).toFixed(2)}</p>
+                        <p><strong>Seller:</strong> ${updatedListing?.seller_name || 'Unknown'} (${updatedListing?.sale_mode || 'instant'} mode)</p>
+                        <p><strong>Buyer:</strong> ${metadata.buyer_name} (${metadata.buyer_email})</p>
+                        <p><a href="https://${req.headers.host}/admin">View in admin panel</a></p>
+                    `;
+
+                    const { data: queued } = await supabaseAdmin
+                        .from('email_queue')
+                        .insert({ to_email: adminInbox, subject, body_html: bodyHtml, event_type: 'card_sold', related_id: metadata.listing_id, status: 'pending', attempts: 1 })
+                        .select('id')
+                        .single();
+
+                    const resendApiKey = process.env.RESEND_API_KEY;
+                    if (resendApiKey && queued) {
+                        const emailResponse = await fetch('https://api.resend.com/emails', {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ from: emailFrom, to: adminInbox, subject, html: bodyHtml })
+                        });
+                        await supabaseAdmin
+                            .from('email_queue')
+                            .update(emailResponse.ok ? { status: 'sent', sent_at: new Date().toISOString() } : { status: 'failed', last_error: await emailResponse.text() })
+                            .eq('id', queued.id);
+                    }
+                } catch (notifyError) {
+                    // Never let a notification failure break order processing.
+                    console.error('Card-sold notification failed:', notifyError);
+                }
             }
         } catch (error) {
             console.error('Failed to finalize order from Stripe webhook:', error);
