@@ -3047,3 +3047,104 @@ tr:hover td {
     color: var(--gray-800);
     line-height: 1.6;
 }
+
+/* ===== RETAILER AVAILABILITY (admin kill switch) =====
+   Deliberately uses the existing neutral/gray palette, not red -- this is
+   "temporarily unavailable," not an error state, and shouldn't look like
+   one. Retailer branding (logo, name, colors) always stays fully visible;
+   only the purchase/submission action is blocked. */
+.unavailable-badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--gray-200);
+    color: var(--gray-700);
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.btn-disabled {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 10px 20px;
+    min-height: var(--tap-target);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    border: 1.5px solid var(--gray-300);
+    background: var(--gray-100);
+    color: var(--gray-600);
+    cursor: pointer;
+    font-family: inherit;
+    transition: var(--transition);
+}
+
+.btn-disabled:hover {
+    background: var(--gray-200);
+    border-color: var(--gray-400);
+}
+
+.listing-card-unavailable {
+    background: var(--gray-50);
+}
+
+.listing-card-unavailable .listing-price,
+.listing-card-unavailable .listing-value {
+    opacity: 0.75;
+}
+
+/* Sell form retailer tile picker */
+.retailer-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.retailer-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 10px;
+    border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    background: var(--white);
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+}
+
+.retailer-tile:hover:not(.unavailable) {
+    border-color: var(--navy);
+}
+
+.retailer-tile.selected {
+    border-color: var(--gold);
+    background: rgba(31,77,58,0.04);
+}
+
+.retailer-tile.unavailable {
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.retailer-tile.unavailable:hover {
+    border-color: var(--gray-300);
+}
+
+.retailer-tile .unavailable-badge {
+    font-size: 9.5px;
+    padding: 3px 8px;
+}
+
+@media (max-width: 480px) {
+    .retailer-tile-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
