@@ -1986,6 +1986,23 @@ async function handleSubmission() {
             if (error) throw error;
         });
 
+        await notifyAdmin(
+            'submission_received',
+            `New Submission for Review: ${brand} #${submissionPublicId}`,
+            `<p><strong>Retailer:</strong> ${escapeHtml(brand)}</p>
+             <p><strong>Original Value:</strong> ${formatCurrency(value)}</p>
+             <p><strong>Current Balance:</strong> ${formatCurrency(balance)}</p>
+             <p><strong>Card Number:</strong> ${escapeHtml(cardNum)}</p>
+             <p><strong>PIN:</strong> ${pin ? escapeHtml(pin) : 'Not provided'}</p>
+             <p><strong>Expiry:</strong> ${escapeHtml(expiry)}</p>
+             <p><strong>Sale Mode:</strong> ${saleMode}${saleMode === 'marketplace' ? ` (seller asking price: ${formatCurrency(sellerSetPrice)})` : ''}</p>
+             <p><strong>Calculated Offer:</strong> ${formatCurrency(offerAmount)}</p>
+             <p><strong>Seller:</strong> ${escapeHtml(AppState.currentUser.name)} (${escapeHtml(AppState.currentUser.email)})</p>
+             <p><strong>Submitted:</strong> ${new Date().toLocaleString('en-NZ')}</p>
+             <p><a href="${window.location.origin}/admin">Review this submission in the admin panel</a></p>`,
+            null
+        );
+
         showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
@@ -2962,10 +2979,18 @@ async function approveSubmission(submissionDbId) {
             saleMode: sub.saleMode,
             offerAmount: sub.offerAmount
         });
-        await notifyAdmin(
+        await notifySeller(
+            sub.sellerId,
+            `Your ${sub.brand} card submission was approved!`,
+            `<p>Hi ${escapeHtml(sub.sellerName)},</p>
+             <p>Good news — your ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.id)}) has been verified and approved.</p>
+             ${
+                 sub.saleMode === 'marketplace'
+                     ? `<p>It's now listed on the Giftlio marketplace. You'll be paid <strong>${formatCurrency(sub.offerAmount)}</strong> once a buyer purchases it.</p>`
+                     : `<p>Your payout of <strong>${formatCurrency(sub.offerAmount)}</strong> is on its way.</p>`
+             }
+             <p>You can track this anytime from your seller dashboard.</p>`,
             'submission_approved',
-            `Submission Approved: ${sub.brand} #${sub.id}`,
-            `<p><strong>Seller:</strong> ${escapeHtml(sub.sellerName)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Mode:</strong> ${sub.saleMode}</p><p><strong>Offer:</strong> ${formatCurrency(sub.offerAmount)}</p>`,
             submissionDbId
         );
 
@@ -3007,6 +3032,29 @@ async function logAdminAction(actionType, targetType, targetId, brand, details) 
  * alert (low inventory, suspicious activity, dispute raised) anywhere else
  * in the app is one call to notifyAdmin(...), not a new endpoint.
  */
+/**
+ * Sends a transactional email to a specific seller (via /api/notify-seller)
+ * -- for outcomes like approval/rejection, where the SELLER needs to know
+ * what happened, not the admin who just took the action.
+ */
+async function notifySeller(sellerId, subject, bodyHtml, eventType, relatedId) {
+    try {
+        const response = await fetch('/api/notify-seller', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sellerId, subject, bodyHtml, eventType, relatedId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Notification failed');
+        if (data.queued) {
+            showToast('warning', 'Seller notification email is queued for retry (send failed once).');
+        }
+    } catch (error) {
+        console.error('notifySeller failed:', error);
+        showToast('warning', 'Could not email the seller about this outcome.');
+    }
+}
+
 async function notifyAdmin(eventType, subject, bodyHtml, relatedId) {
     try {
         const response = await fetch('/api/send-notification', {
@@ -3146,7 +3194,7 @@ async function toggleSellerSuspension(sellerId, sellerName, currentlySuspended) 
  * approval, so this action is really for Marketplace mode.
  */
 async function markSubmissionPaid(submissionDbId) {
-    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name, offer_amount').eq('id', submissionDbId).single();
+    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name, seller_id, offer_amount').eq('id', submissionDbId).single();
 
     showConfirmModal({
         title: 'Mark as Paid',
@@ -3159,10 +3207,13 @@ async function markSubmissionPaid(submissionDbId) {
                     if (error) throw error;
                 });
                 await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
-                await notifyAdmin(
+                await notifySeller(
+                    sub?.seller_id,
+                    `Your payout for ${sub?.brand} has been sent`,
+                    `<p>Hi ${escapeHtml(sub?.seller_name || '')},</p>
+                     <p>Your payout of <strong>${formatCurrency(sub?.offer_amount || 0)}</strong> for your ${escapeHtml(sub?.brand || '')} card (#${escapeHtml(sub?.public_id || '')}) has been sent.</p>
+                     <p>Thanks for selling with Giftlio!</p>`,
                     'payout_marked_paid',
-                    `Payout Marked Paid: ${sub?.brand} #${sub?.public_id}`,
-                    `<p><strong>Seller:</strong> ${escapeHtml(sub?.seller_name || '')}</p><p><strong>Amount:</strong> ${formatCurrency(sub?.offer_amount || 0)}</p>`,
                     submissionDbId
                 );
                 showToast('success', 'Marked as paid.');
@@ -3199,10 +3250,14 @@ async function rejectSubmission(submissionDbId) {
                 });
 
                 await logAdminAction('reject_submission', 'submission', submissionDbId, sub.brand, { reason, seller: sub.seller_name });
-                await notifyAdmin(
+                await notifySeller(
+                    sub.seller_id,
+                    `Your ${sub.brand} card submission wasn't approved`,
+                    `<p>Hi ${escapeHtml(sub.seller_name)},</p>
+                     <p>Your submission for a ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.public_id)}) wasn't approved.</p>
+                     <p><strong>Reason:</strong> ${escapeHtml(reason)}</p>
+                     <p>If you have questions, reply to this email or contact support@giftlio.co.nz.</p>`,
                     'submission_rejected',
-                    `Submission Rejected: ${sub.brand} #${sub.public_id}`,
-                    `<p><strong>Seller:</strong> ${escapeHtml(sub.seller_name)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p>`,
                     submissionDbId
                 );
 
