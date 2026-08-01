@@ -37,11 +37,20 @@ module.exports = async function handler(req, res) {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    const { data: seller, error: sellerError } = await supabaseAdmin.from('profiles').select('email, name').eq('id', sellerId).single();
+    const { data: seller, error: sellerError } = await supabaseAdmin.from('profiles').select('email, name, notification_preference').eq('id', sellerId).single();
 
     if (sellerError || !seller?.email) {
         console.error('Could not find seller email:', sellerError);
         return res.status(400).json({ error: 'Could not find this seller\'s email address.' });
+    }
+
+    // payout_only sellers (a Marketplace preference) only want to hear
+    // about their money moving -- skip everything else. daily_digest isn't
+    // implemented yet (no batching job exists), so it behaves like
+    // every_event for now rather than silently dropping notifications.
+    const payoutOnlyEvents = ['payout_marked_paid'];
+    if (seller.notification_preference === 'payout_only' && !payoutOnlyEvents.includes(eventType)) {
+        return res.status(200).json({ success: true, skipped: true, reason: 'seller notification preference is payout_only' });
     }
 
     const { data: queued, error: queueError } = await supabaseAdmin
