@@ -2913,3 +2913,18 @@ tr:hover td {
     margin-left: 8px;
     white-space: nowrap;
 }
+
+/* ===== INSTALL MODAL STEP NUMBERS (replaces keycap emoji) ===== */
+.install-step-num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--navy);
+    color: var(--gold);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
