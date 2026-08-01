@@ -637,6 +637,34 @@
                                     <span class="error-msg" id="subBalanceError"></span>
                                 </div>
                             </div>
+
+                            <div class="form-group">
+                                <label id="saleModeLabel">How do you want to sell?</label>
+                                <div class="sale-mode-options" role="radiogroup" aria-labelledby="saleModeLabel">
+                                    <label class="sale-mode-option selected">
+                                        <input type="radio" name="saleMode" value="instant" checked onchange="handleSaleModeChange()">
+                                        <div class="sale-mode-content">
+                                            <span class="sale-mode-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg>Sell Instantly to Giftlio</span>
+                                            <span class="sale-mode-desc">Get a fixed offer, paid as soon as your card is verified.</span>
+                                        </div>
+                                    </label>
+                                    <label class="sale-mode-option">
+                                        <input type="radio" name="saleMode" value="marketplace" onchange="handleSaleModeChange()">
+                                        <div class="sale-mode-content">
+                                            <span class="sale-mode-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/></svg>List on Marketplace</span>
+                                            <span class="sale-mode-desc">Set your own price. Giftlio takes a 10% commission, paid out once a buyer purchases it.</span>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-group hidden" id="sellerPriceGroup">
+                                <label for="subSellerPrice">Your Asking Price (NZD) *</label>
+                                <input type="number" id="subSellerPrice" min="1" step="0.01" oninput="updateOffer()">
+                                <span class="error-msg" id="subSellerPriceError"></span>
+                                <p class="field-hint-text">You'll receive 90% of this price once it sells (10% Giftlio commission).</p>
+                            </div>
+
                             <div class="form-group">
                                 <label for="subExpiry">Expiry Date *</label>
                                 <input type="date" id="subExpiry">
@@ -661,8 +689,8 @@
                                 <p class="file-name" id="fileName"></p>
                             </div>
                             <div class="offer-box">
-                                <p>Estimated offer: <strong id="offerAmount">$0.00</strong></p>
-                                <p class="offer-note">Final offer may vary after verification</p>
+                                <p id="offerLabel">Estimated offer: <strong id="offerAmount">$0.00</strong></p>
+                                <p class="offer-note" id="offerNote">Final offer may vary after verification</p>
                             </div>
                             <div class="form-group checkbox-group">
                                 <label><input type="checkbox" id="subTerms"> I confirm this gift card is legally mine, the balance is accurate, and I agree to the seller terms</label>
@@ -701,6 +729,7 @@
                                 <div class="summary-value" id="earnPaid">$0.00</div>
                             </div>
                         </div>
+                        <p class="earn-pending-note hidden" id="earnPendingNote"></p>
                         <div class="payout-info">
                             <p><strong>Payout Method:</strong> Bank Transfer</p>
                             <p><strong>Payout Schedule:</strong> Every Friday</p>
@@ -903,31 +932,43 @@
             <div class="container legal-page">
                 <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
                 <h1>Contact Us</h1>
-                <p class="legal-date">A real person reads every message — not a chatbot.</p>
+                <p class="legal-date">A real person reads every message — not a chatbot. We aim to reply within 24 hours, NZ business days.</p>
 
-                <div class="contact-grid">
-                    <div class="contact-card">
-                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
-                        <h3>General Inquiries</h3>
-                        <p>Questions about Giftlio, partnerships, or anything else.</p>
-                        <a href="mailto:hello@giftlio.co.nz" class="btn btn-secondary">hello@giftlio.co.nz</a>
+                <form id="contactForm" novalidate onsubmit="event.preventDefault(); handleContactSubmit();" class="contact-form">
+                    <div class="form-group">
+                        <label for="contactName">Full Name</label>
+                        <input type="text" id="contactName">
+                        <span class="error-msg" id="contactNameError"></span>
                     </div>
-                    <div class="contact-card">
-                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>
-                        <h3>Email Support</h3>
-                        <p>For order issues, verification questions, or account help.</p>
-                        <a href="mailto:support@giftlio.co.nz" class="btn btn-secondary">support@giftlio.co.nz</a>
+                    <div class="form-group">
+                        <label for="contactEmail">Email Address</label>
+                        <input type="email" id="contactEmail">
+                        <span class="error-msg" id="contactEmailError"></span>
                     </div>
-                    <div class="contact-card">
-                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
-                        <h3>Response Time</h3>
-                        <p>We aim to reply to every message within 24 hours, NZ business days.</p>
+                    <div class="form-group">
+                        <label for="contactSubject">Subject</label>
+                        <select id="contactSubject">
+                            <option value="">Select a subject</option>
+                            <option>General Enquiry</option>
+                            <option>Buying a Gift Card</option>
+                            <option>Selling a Gift Card</option>
+                            <option>Report an Issue</option>
+                            <option>Other</option>
+                        </select>
+                        <span class="error-msg" id="contactSubjectError"></span>
                     </div>
-                    <div class="contact-card">
-                        <div class="contact-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 3v6c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V5l7-3z"/></svg></div>
-                        <h3>Report an Issue</h3>
-                        <p>Something wrong with a card balance or a listing? Tell us straight away.</p>
+                    <div class="form-group">
+                        <label for="contactMessage">Message</label>
+                        <textarea id="contactMessage" rows="6"></textarea>
+                        <span class="error-msg" id="contactMessageError"></span>
                     </div>
+                    <button type="submit" class="btn btn-primary btn-large btn-full" id="contactSubmitBtn">Send Message</button>
+                </form>
+
+                <div class="contact-direct">
+                    <p>Prefer email?</p>
+                    <a href="mailto:support@giftlio.co.nz" class="contact-direct-email">support@giftlio.co.nz</a>
+                    <p class="contact-direct-note">Giftlio is an online-only New Zealand business — there's no physical storefront or phone line yet.</p>
                 </div>
             </div>
         </section>
