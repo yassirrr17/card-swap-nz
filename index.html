@@ -134,16 +134,44 @@
             <h2 style="color: var(--navy); margin-bottom: 16px;">Install Giftlio on iPhone</h2>
             <div style="text-align: left; display: grid; gap: 16px; margin-top: 20px;">
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">1⃣</span>
+                    <span class="install-step-num">1</span>
                     <p>Tap the <strong>Share</strong> button <span aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/></svg></span> in Safari's toolbar</p>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">2⃣</span>
+                    <span class="install-step-num">2</span>
                     <p>Scroll down and tap <strong>"Add to Home Screen"</strong></p>
                 </div>
                 <div style="display: flex; gap: 12px; align-items: center;">
-                    <span style="font-size: 24px;">3⃣</span>
+                    <span class="install-step-num">3</span>
                     <p>Tap <strong>"Add"</strong> in the top right</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Android fallback instructions modal -- used when beforeinstallprompt
+         never fires (Samsung Internet 27+ deliberately dropped support for
+         it, Firefox for Android never supported it at all), so Android
+         users on those browsers still get a real install path instead of
+         nothing. -->
+    <div class="modal-overlay hidden" id="androidInstallOverlay" onclick="closeAndroidInstallModal()"></div>
+    <div class="modal hidden" id="androidInstallModal">
+        <button class="modal-close" aria-label="Close" onclick="closeAndroidInstallModal()">×</button>
+        <div style="text-align: center;">
+            <h2 style="color: var(--navy); margin-bottom: 16px;">Install Giftlio</h2>
+            <p style="color: var(--gray-600); font-size: 13px; margin-bottom: 20px;">Your browser doesn't support one-tap install, but you can still add Giftlio to your home screen manually:</p>
+            <div style="text-align: left; display: grid; gap: 16px; margin-top: 20px;">
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span class="install-step-num">1</span>
+                    <p>Tap the menu icon <span aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></span> in your browser's toolbar</p>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span class="install-step-num">2</span>
+                    <p>Look for <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong></p>
+                </div>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <span class="install-step-num">3</span>
+                    <p>Confirm by tapping <strong>"Install"</strong> or <strong>"Add"</strong></p>
                 </div>
             </div>
         </div>
