@@ -1744,8 +1744,8 @@ function updateOffer() {
         offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">${formatCurrency(payout)}</strong>`;
         offerNote.textContent = 'Paid out once a buyer purchases your card, after 10% commission';
     } else {
-        const value = parseFloat(document.getElementById('subValue').value) || 0;
-        const offer = value * SELLER_OFFER_RATE;
+        const balance = parseFloat(document.getElementById('subBalance').value) || 0;
+        const offer = balance * SELLER_OFFER_RATE;
         offerLabel.innerHTML = `Estimated offer: <strong id="offerAmount">${formatCurrency(offer)}</strong>`;
         offerNote.textContent = 'Final offer may vary after verification, paid once approved';
     }
@@ -1818,7 +1818,7 @@ async function handleSubmission() {
     if (hasError) return;
 
     const submissionPublicId = generatePublicId('SUB');
-    const offerAmount = saleMode === 'marketplace' ? sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE) : value * SELLER_OFFER_RATE;
+    const offerAmount = saleMode === 'marketplace' ? sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE) : balance * SELLER_OFFER_RATE;
 
     try {
         await withLoading(async () => {
