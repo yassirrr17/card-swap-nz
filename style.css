@@ -404,6 +404,15 @@ a:hover {
     min-height: 32px;
 }
 
+.btn-danger {
+    background: var(--red);
+    color: var(--white);
+}
+
+.btn-danger:hover {
+    background: #a02d23;
+}
+
 .btn-danger-outline {
     color: var(--red);
     border-color: var(--red);
@@ -2927,4 +2936,49 @@ tr:hover td {
     font-size: 12px;
     font-weight: 700;
     flex-shrink: 0;
+}
+
+/* ===== AUDIT LOG FILTERS ===== */
+.audit-log-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.audit-log-filters select,
+.audit-log-filters input {
+    padding: 8px 12px;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+@media (max-width: 640px) {
+    .audit-log-filters {
+        flex-direction: column;
+    }
+    .audit-log-filters select,
+    .audit-log-filters input,
+    .audit-log-filters button {
+        width: 100%;
+    }
+}
+
+/* ===== LINK-STYLED BUTTON (e.g. seller name opening history modal) ===== */
+.link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--navy);
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.link-btn:hover {
+    color: var(--gold);
 }
