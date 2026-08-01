@@ -656,20 +656,11 @@
                         <h2>Sell Your Gift Card</h2>
                         <form id="submissionForm" novalidate onsubmit="event.preventDefault(); handleSubmission();">
                             <div class="form-group">
-                                <label for="subBrand">Retailer / Brand *</label>
-                                <select id="subBrand" onchange="updateOffer()">
+                                <label id="subBrandLabel">Retailer / Brand *</label>
+                                <select id="subBrand" class="visually-hidden" aria-hidden="true" tabindex="-1" onchange="updateOffer()">
                                     <option value="">Select a brand</option>
-                                    <option>The Warehouse</option>
-                                    <option>Woolworths</option>
-                                    <option>Pak'nSave</option>
-                                    <option>New World</option>
-                                    <option>Farmers</option>
-                                    <option>Noel Leeming</option>
-                                    <option>Briscoes</option>
-                                    <option>Rebel Sport</option>
-                                    <option>PB Tech</option>
-                                    <option>Other</option>
                                 </select>
+                                <div class="retailer-tile-grid" id="brandTilePicker" role="radiogroup" aria-labelledby="subBrandLabel"></div>
                                 <span class="error-msg" id="subBrandError"></span>
                             </div>
                             <div class="form-row">
