@@ -1242,6 +1242,149 @@ function clearFilters() {
     applyFilters();
 }
 
+const OFFER_RANGE_PCT = 0.25;
+
+/**
+ * Renders the buyer-facing offer panel on a Marketplace listing's detail
+ * page. Checks for an existing offer from this buyer on this listing first
+ * -- the UI branches entirely on that offer's status (or its absence)
+ * rather than always showing a fresh "make an offer" form.
+ */
+async function renderOfferPanel(listing) {
+    const panel = document.getElementById('offerPanel');
+    if (!panel) return;
+
+    try {
+        const { data: existing, error } = await supabaseClient
+            .from('listing_offers')
+            .select('*')
+            .eq('listing_id', listing.id)
+            .eq('buyer_id', AppState.currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+
+        const minOffer = listing.salePrice * (1 - OFFER_RANGE_PCT);
+        const maxOffer = listing.salePrice * (1 + OFFER_RANGE_PCT);
+
+        if (!existing || ['rejected', 'expired', 'withdrawn'].includes(existing.status)) {
+            panel.innerHTML = `
+                <div class="offer-panel">
+                    <button class="btn btn-outline" style="width: 100%;" onclick="toggleOfferForm()">Make an Offer</button>
+                    <div class="offer-form hidden" id="offerFormBox">
+                        <label for="offerAmountInput">Your offer (between ${formatCurrency(minOffer)} and ${formatCurrency(maxOffer)})</label>
+                        <input type="number" id="offerAmountInput" step="0.01" min="${minOffer.toFixed(2)}" max="${maxOffer.toFixed(2)}">
+                        <span class="error-msg" id="offerAmountError"></span>
+                        <button class="btn btn-primary" style="width: 100%; margin-top: 8px;" onclick="submitOffer('${listing.id}', '${escapeJsString(listing.sellerId)}', ${listing.salePrice})">Send Offer</button>
+                    </div>
+                </div>
+            `;
+        } else if (existing.status === 'pending') {
+            panel.innerHTML = `<div class="offer-panel offer-status-box"><p>Your offer of <strong>${formatCurrency(existing.offer_amount)}</strong> is waiting for the seller to respond.</p><button class="btn btn-outline btn-sm" onclick="withdrawOffer('${existing.id}')">Withdraw Offer</button></div>`;
+        } else if (existing.status === 'countered') {
+            panel.innerHTML = `
+                <div class="offer-panel offer-status-box">
+                    <p>The seller countered your offer of ${formatCurrency(existing.offer_amount)} with <strong>${formatCurrency(existing.counter_amount)}</strong>.</p>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button class="btn btn-primary" onclick="respondToCounter('${existing.id}', true)">Accept ${formatCurrency(existing.counter_amount)}</button>
+                        <button class="btn btn-outline" onclick="respondToCounter('${existing.id}', false)">Walk Away</button>
+                    </div>
+                </div>
+            `;
+        } else if (existing.status === 'accepted' || existing.status === 'buyer_accepted_counter') {
+            const agreedPrice = existing.status === 'buyer_accepted_counter' ? existing.counter_amount : existing.offer_amount;
+            panel.innerHTML = `<div class="offer-panel offer-status-box"><p>Your offer was accepted! You can buy this card at your agreed price of <strong>${formatCurrency(agreedPrice)}</strong>.</p><button class="btn btn-gold" style="width: 100%; margin-top: 8px;" onclick="startCheckout(${agreedPrice})">Buy Now - ${formatCurrency(agreedPrice)} NZD</button></div>`;
+        }
+    } catch (error) {
+        console.error('Unable to load offer status:', error);
+    }
+}
+
+function toggleOfferForm() {
+    document.getElementById('offerFormBox').classList.toggle('hidden');
+}
+
+async function submitOffer(listingId, sellerId, originalPrice) {
+    const input = document.getElementById('offerAmountInput');
+    const errorEl = document.getElementById('offerAmountError');
+    errorEl.textContent = '';
+    input.classList.remove('field-error');
+
+    const amount = Number(input.value);
+    const min = originalPrice * (1 - OFFER_RANGE_PCT);
+    const max = originalPrice * (1 + OFFER_RANGE_PCT);
+
+    if (!input.value || Number.isNaN(amount) || amount <= 0) {
+        input.classList.add('field-error');
+        errorEl.textContent = 'Enter a valid amount.';
+        return;
+    }
+    if (amount < min || amount > max) {
+        input.classList.add('field-error');
+        errorEl.textContent = `Must be between ${formatCurrency(min)} and ${formatCurrency(max)}.`;
+        return;
+    }
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('listing_offers').insert({
+                listing_id: listingId,
+                buyer_id: AppState.currentUser.id,
+                seller_id: sellerId,
+                original_price: originalPrice,
+                offer_amount: amount,
+                status: 'pending'
+            });
+            if (error) throw error;
+        });
+
+        await notifySeller(
+            sellerId,
+            `New offer on your listing: ${formatCurrency(amount)}`,
+            `<p>${escapeHtml(AppState.currentUser.name)} sent an offer of <strong>${formatCurrency(amount)}</strong> on your listing (listed at ${formatCurrency(originalPrice)}).</p>
+             <p><a href="${window.location.origin}/seller-dashboard">Respond to this offer</a></p>`,
+            'offer_received',
+            listingId
+        );
+
+        showToast('success', 'Offer sent to the seller.');
+        viewListing(listingId, { historyMode: 'none' });
+    } catch (error) {
+        showError(error, 'Unable to send your offer.');
+    }
+}
+
+async function withdrawOffer(offerId) {
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('listing_offers').update({ status: 'withdrawn', responded_at: new Date().toISOString() }).eq('id', offerId);
+            if (error) throw error;
+        });
+        showToast('info', 'Offer withdrawn.');
+        viewListing(AppState.currentListing.id, { historyMode: 'none' });
+    } catch (error) {
+        showError(error, 'Unable to withdraw offer.');
+    }
+}
+
+async function respondToCounter(offerId, accept) {
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient
+                .from('listing_offers')
+                .update({ status: accept ? 'buyer_accepted_counter' : 'rejected', responded_at: new Date().toISOString() })
+                .eq('id', offerId);
+            if (error) throw error;
+        });
+        showToast(accept ? 'success' : 'info', accept ? 'Counter accepted! You can now buy at the agreed price.' : 'Counter declined.');
+        viewListing(AppState.currentListing.id, { historyMode: 'none' });
+    } catch (error) {
+        showError(error, 'Unable to respond to the counter offer.');
+    }
+}
+
 async function viewListing(id, options = {}) {
     const { historyMode = 'push' } = options;
 
@@ -1330,6 +1473,7 @@ async function viewListing(id, options = {}) {
                         </button>
                         <p style="font-size: 12px; color: var(--gray-500); margin-top: 8px; text-align: center;">Includes service fee</p>
                     </div>
+                    ${listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId ? '<div id="offerPanel"></div>' : ''}
                     ${
                         similar.length > 0
                             ? `<div class="detail-section">
@@ -1353,6 +1497,10 @@ async function viewListing(id, options = {}) {
                 </div>
             `;
 
+            if (listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
+                await renderOfferPanel(listing);
+            }
+
             router('listing', { historyMode });
         });
     } catch (error) {
@@ -1360,20 +1508,26 @@ async function viewListing(id, options = {}) {
     }
 }
 
-function startCheckout() {
+function startCheckout(agreedPrice) {
     if (!AppState.currentUser) {
         router('login');
         return;
     }
     if (!AppState.currentListing) return;
 
+    // agreedPrice comes from an accepted Marketplace offer/counter -- this
+    // buyer negotiated a different price than the listing's public
+    // sale_price, and checkout must charge THEM that agreed amount, not
+    // what everyone else sees on the listing.
+    const effectivePrice = typeof agreedPrice === 'number' ? agreedPrice : AppState.currentListing.salePrice;
+
     AppState.checkoutStep = DEFAULT_CHECKOUT_STEP;
     AppState.currentOrder = {
-        listing: AppState.currentListing,
+        listing: { ...AppState.currentListing, salePrice: effectivePrice },
         buyerName: AppState.currentUser.name,
         buyerEmail: AppState.currentUser.email,
         buyerPhone: '',
-        ...GiftlioPricing.calculateCheckoutTotal(AppState.currentListing.salePrice)
+        ...GiftlioPricing.calculateCheckoutTotal(effectivePrice)
     };
 
     updateCheckoutSteps();
@@ -1713,7 +1867,9 @@ function showSellerTab(tab, event) {
         overview: 'sellerOverview',
         submit: 'sellerSubmit',
         submissions: 'sellerSubmissions',
-        earnings: 'sellerEarnings'
+        earnings: 'sellerEarnings',
+        settings: 'sellerSettings',
+        offers: 'sellerOffers'
     };
 
     const targetTabId = tabMap[tab];
@@ -1726,6 +1882,8 @@ function showSellerTab(tab, event) {
 
     if (tab === 'submissions') renderSellerSubmissions();
     if (tab === 'earnings') renderSellerEarnings();
+    if (tab === 'settings') renderSellerSettings();
+    if (tab === 'offers') renderSellerOffers();
 }
 
 async function renderSellerDashboard() {
@@ -1986,10 +2144,11 @@ async function handleSubmission() {
             if (error) throw error;
         });
 
-        await notifyAdmin(
-            'submission_received',
-            `New Submission for Review: ${brand} #${submissionPublicId}`,
-            `<p><strong>Retailer:</strong> ${escapeHtml(brand)}</p>
+        await notifyBoth({
+            eventType: 'submission_received',
+            relatedId: null,
+            adminSubject: `New Submission for Review: ${brand} #${submissionPublicId}`,
+            adminBody: `<p><strong>Retailer:</strong> ${escapeHtml(brand)}</p>
              <p><strong>Original Value:</strong> ${formatCurrency(value)}</p>
              <p><strong>Current Balance:</strong> ${formatCurrency(balance)}</p>
              <p><strong>Card Number:</strong> ${escapeHtml(cardNum)}</p>
@@ -2000,8 +2159,11 @@ async function handleSubmission() {
              <p><strong>Seller:</strong> ${escapeHtml(AppState.currentUser.name)} (${escapeHtml(AppState.currentUser.email)})</p>
              <p><strong>Submitted:</strong> ${new Date().toLocaleString('en-NZ')}</p>
              <p><a href="${window.location.origin}/admin">Review this submission in the admin panel</a></p>`,
-            null
-        );
+            sellerId: AppState.currentUser.id,
+            sellerSubject: `We've received your ${brand} card submission`,
+            sellerBody: `<p>Hi ${escapeHtml(AppState.currentUser.name)},</p>
+             <p>We've received your ${escapeHtml(brand)} gift card submission (#${escapeHtml(submissionPublicId)}) and it's now being manually verified. We'll email you as soon as it's reviewed.</p>`
+        });
 
         showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
         document.getElementById('submissionForm').reset();
@@ -2163,6 +2325,211 @@ function renderSubmissionCard(s, listingStatus) {
     `;
 }
 
+/**
+ * Seller-facing offers table -- every offer on any of this seller's
+ * Marketplace listings, with accept/reject/counter actions on pending ones.
+ */
+async function renderSellerOffers() {
+    if (!AppState.currentUser) return;
+    const table = document.getElementById('sellerOffersTable');
+    const empty = document.getElementById('sellerOffersEmpty');
+    table.innerHTML = renderSkeletonTableRows(5, 3);
+    empty.classList.add('hidden');
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('listing_offers')
+            .select('*, listings(brand, sale_price)')
+            .eq('seller_id', AppState.currentUser.id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+            table.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>Brand</th><th>Listed At</th><th>Offer</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+                <tbody>
+                    ${data
+                        .map((o) => {
+                            const badgeMap = {
+                                pending: 'badge-yellow',
+                                accepted: 'badge-green',
+                                buyer_accepted_counter: 'badge-green',
+                                rejected: 'badge-red',
+                                countered: 'badge-blue',
+                                withdrawn: 'badge-gray',
+                                expired: 'badge-gray'
+                            };
+                            return `
+                        <tr>
+                            <td data-label="Brand">${escapeHtml(o.listings?.brand || '')}</td>
+                            <td data-label="Listed At">${formatCurrency(o.original_price)}</td>
+                            <td data-label="Offer">${formatCurrency(o.offer_amount)}${o.counter_amount ? ` (your counter: ${formatCurrency(o.counter_amount)})` : ''}</td>
+                            <td data-label="Status"><span class="badge ${badgeMap[o.status] || 'badge-gray'}">${o.status.replace(/_/g, ' ')}</span></td>
+                            <td data-label="Date">${new Date(o.created_at).toLocaleDateString('en-NZ')}</td>
+                            <td data-label="Actions">
+                                ${
+                                    o.status === 'pending'
+                                        ? `<button class="btn btn-primary btn-sm" onclick="respondToOffer('${o.id}', 'accept')">Accept</button>
+                                           <button class="btn btn-outline btn-sm btn-danger-outline" onclick="respondToOffer('${o.id}', 'reject')">Reject</button>
+                                           <button class="btn btn-outline btn-sm" onclick="showCounterInput('${o.id}')">Counter</button>
+                                           <div class="hidden" id="counterBox-${o.id}" style="margin-top:6px; display:flex; gap:6px;">
+                                               <input type="number" id="counterInput-${o.id}" style="width:90px; padding:6px;" step="0.01">
+                                               <button class="btn btn-primary btn-sm" onclick="sendCounter('${o.id}', ${o.original_price})">Send</button>
+                                           </div>`
+                                        : '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
+                                }
+                            </td>
+                        </tr>
+                    `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load offers.');
+    }
+}
+
+function showCounterInput(offerId) {
+    document.getElementById(`counterBox-${offerId}`).classList.remove('hidden');
+}
+
+async function respondToOffer(offerId, action) {
+    try {
+        const { data: offer } = await supabaseClient.from('listing_offers').select('*').eq('id', offerId).single();
+
+        await withLoading(async () => {
+            const { error } = await supabaseClient
+                .from('listing_offers')
+                .update({ status: action === 'accept' ? 'accepted' : 'rejected', responded_at: new Date().toISOString() })
+                .eq('id', offerId);
+            if (error) throw error;
+        });
+
+        const { data: buyerProfile } = await supabaseClient.from('profiles').select('email, name').eq('id', offer.buyer_id).single();
+        if (buyerProfile?.email) {
+            await fetch('/api/notify-seller', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sellerId: offer.buyer_id,
+                    subject: action === 'accept' ? `Your offer was accepted!` : `Your offer wasn't accepted`,
+                    bodyHtml:
+                        action === 'accept'
+                            ? `<p>Great news — your offer of ${formatCurrency(offer.offer_amount)} was accepted. Head back to the listing to complete your purchase at this price.</p>`
+                            : `<p>The seller declined your offer of ${formatCurrency(offer.offer_amount)}. You're welcome to browse other listings or make a new offer.</p>`,
+                    eventType: `offer_${action}ed`
+                })
+            });
+        }
+
+        showToast('success', action === 'accept' ? 'Offer accepted.' : 'Offer rejected.');
+        renderSellerOffers();
+    } catch (error) {
+        showError(error, 'Unable to respond to this offer.');
+    }
+}
+
+async function sendCounter(offerId, originalPrice) {
+    const input = document.getElementById(`counterInput-${offerId}`);
+    const amount = Number(input.value);
+    const min = originalPrice * (1 - OFFER_RANGE_PCT);
+    const max = originalPrice * (1 + OFFER_RANGE_PCT);
+
+    if (!input.value || Number.isNaN(amount) || amount < min || amount > max) {
+        showToast('warning', `Counter must be between ${formatCurrency(min)} and ${formatCurrency(max)}.`);
+        return;
+    }
+
+    try {
+        const { data: offer } = await supabaseClient.from('listing_offers').select('buyer_id').eq('id', offerId).single();
+
+        await withLoading(async () => {
+            const { error } = await supabaseClient
+                .from('listing_offers')
+                .update({ status: 'countered', counter_amount: amount, responded_at: new Date().toISOString() })
+                .eq('id', offerId);
+            if (error) throw error;
+        });
+
+        await fetch('/api/notify-seller', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sellerId: offer.buyer_id,
+                subject: `The seller countered your offer with ${formatCurrency(amount)}`,
+                bodyHtml: `<p>The seller countered your offer with <strong>${formatCurrency(amount)}</strong>. Head back to the listing to accept or walk away.</p>`,
+                eventType: 'offer_countered'
+            })
+        });
+
+        showToast('success', 'Counter offer sent.');
+        renderSellerOffers();
+    } catch (error) {
+        showError(error, 'Unable to send counter offer.');
+    }
+}
+
+/**
+ * Shows the notification preference form only to sellers who've actually
+ * used Marketplace mode at least once -- Instant Sell-only sellers get a
+ * plain note instead, since they only ever receive 3 fixed emails and
+ * there's nothing for them to configure.
+ */
+async function renderSellerSettings() {
+    if (!AppState.currentUser) return;
+
+    try {
+        const [{ data: marketplaceSubs }, { data: profile }] = await Promise.all([
+            supabaseClient.from('submissions').select('id').eq('seller_id', AppState.currentUser.id).eq('sale_mode', 'marketplace').limit(1),
+            supabaseClient.from('profiles').select('notification_preference').eq('id', AppState.currentUser.id).single()
+        ]);
+
+        const hasUsedMarketplace = (marketplaceSubs || []).length > 0;
+        document.getElementById('notificationPrefGroup').classList.toggle('hidden', !hasUsedMarketplace);
+        document.getElementById('instantOnlyNote').classList.toggle('hidden', hasUsedMarketplace);
+
+        if (hasUsedMarketplace) {
+            const current = profile?.notification_preference || 'every_event';
+            document.querySelectorAll('input[name="notifPref"]').forEach((input) => {
+                input.checked = input.value === current;
+                input.closest('.sale-mode-option').classList.toggle('selected', input.value === current);
+                input.addEventListener('change', () => {
+                    document.querySelectorAll('input[name="notifPref"]').forEach((i) => i.closest('.sale-mode-option').classList.toggle('selected', i.checked));
+                });
+            });
+        }
+    } catch (error) {
+        showError(error, 'Unable to load settings.');
+    }
+}
+
+async function saveNotificationPreference() {
+    const selected = document.querySelector('input[name="notifPref"]:checked');
+    if (!selected) {
+        showToast('warning', 'Choose a preference first.');
+        return;
+    }
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('profiles').update({ notification_preference: selected.value }).eq('id', AppState.currentUser.id);
+            if (error) throw error;
+        });
+        showToast('success', 'Notification preference saved.');
+    } catch (error) {
+        showError(error, 'Unable to save your preference.');
+    }
+}
+
 async function renderSellerEarnings() {
     if (!AppState.currentUser) return;
 
@@ -2269,59 +2636,11 @@ async function renderAdmin() {
             document.getElementById('adminSales').textContent = formatCurrency(orders.reduce((sum, o) => sum + Number(o.total || 0), 0));
 
             const pending = submissions.filter((s) => s.statusKey === 'pending_review');
-            const pendingTable = document.getElementById('pendingTable');
-            const pendingEmpty = document.getElementById('pendingEmpty');
+            const instantPending = pending.filter((s) => s.saleMode !== 'marketplace');
+            const marketplacePending = pending.filter((s) => s.saleMode === 'marketplace');
 
-            if (pending.length === 0) {
-                pendingTable.innerHTML = '';
-                pendingEmpty.classList.remove('hidden');
-            } else {
-                pendingEmpty.classList.add('hidden');
-                pendingTable.innerHTML = `
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Seller</th>
-                                <th>Brand</th>
-                                <th>Mode</th>
-                                <th>Value</th>
-                                <th>Balance</th>
-                                <th>Expiry</th>
-                                <th>Date</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${pending
-                                .map(
-                                    (s) => `
-                                <tr>
-                                    <td data-label="ID">${s.id}</td>
-                                    <td data-label="Seller">${s.sellerName}</td>
-                                    <td data-label="Brand">${s.brand}</td>
-                                    <td data-label="Mode">${
-                                        s.saleMode === 'marketplace'
-                                            ? `<span class="submission-mode-tag marketplace">Marketplace ($${s.sellerSetPrice != null ? s.sellerSetPrice.toFixed(2) : '?'})</span>`
-                                            : `<span class="submission-mode-tag instant">Instant</span>`
-                                    }</td>
-                                    <td data-label="Value">${formatCurrency(s.faceValue)}</td>
-                                    <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
-                                    <td data-label="Expiry">${s.expiryDate}</td>
-                                    <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
-                                    <td data-label="Actions">
-                                        <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Approve</button>
-                                        <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
-                                        <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
-                                    </td>
-                                </tr>
-                            `
-                                )
-                                .join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
+            renderInstantPendingTable(instantPending);
+            renderMarketplacePendingTable(marketplacePending);
 
             const pendingDelivery = orders.filter((o) => o.statusKey === 'pending_verification');
             const pendingDeliveryTable = document.getElementById('pendingDeliveryTable');
@@ -2428,6 +2747,103 @@ async function renderAdmin() {
  * rows to need server-side search at current volume). Called fresh, and
  * again whenever a filter changes.
  */
+function switchPendingTab(tab) {
+    document.getElementById('tabInstantBtn').classList.toggle('active', tab === 'instant');
+    document.getElementById('tabMarketplaceBtn').classList.toggle('active', tab === 'marketplace');
+    document.getElementById('instantPendingPanel').classList.toggle('hidden', tab !== 'instant');
+    document.getElementById('marketplacePendingPanel').classList.toggle('hidden', tab !== 'marketplace');
+}
+
+/** Instant Sell queue: shows the calculated offer, needs only approve/reject. */
+function renderInstantPendingTable(pending) {
+    const pendingTable = document.getElementById('pendingTable');
+    const pendingEmpty = document.getElementById('pendingEmpty');
+
+    if (pending.length === 0) {
+        pendingTable.innerHTML = '';
+        pendingEmpty.classList.remove('hidden');
+        return;
+    }
+    pendingEmpty.classList.add('hidden');
+    pendingTable.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Seller</th><th>Brand</th><th>Value</th><th>Balance</th><th>Calculated Offer</th><th>Expiry</th><th>Date</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${pending
+                    .map(
+                        (s) => `
+                    <tr>
+                        <td data-label="ID">${s.id}</td>
+                        <td data-label="Seller">${escapeHtml(s.sellerName)}</td>
+                        <td data-label="Brand">${escapeHtml(s.brand)}</td>
+                        <td data-label="Value">${formatCurrency(s.faceValue)}</td>
+                        <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
+                        <td data-label="Calculated Offer"><strong>${formatCurrency(s.offerAmount)}</strong></td>
+                        <td data-label="Expiry">${s.expiryDate}</td>
+                        <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
+                        <td data-label="Actions">
+                            <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Approve</button>
+                            <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
+                            <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                        </td>
+                    </tr>
+                `
+                    )
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+/** Marketplace queue: shows the seller's own chosen price, admin only needs
+    to verify the balance is correct before letting the listing go live. */
+function renderMarketplacePendingTable(pending) {
+    const table = document.getElementById('marketplacePendingTable');
+    const empty = document.getElementById('marketplacePendingEmpty');
+
+    if (pending.length === 0) {
+        table.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+    empty.classList.add('hidden');
+    table.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Seller</th><th>Brand</th><th>Balance</th><th>Seller's Price</th><th>Expiry</th><th>Date</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${pending
+                    .map(
+                        (s) => `
+                    <tr>
+                        <td data-label="ID">${s.id}</td>
+                        <td data-label="Seller">${escapeHtml(s.sellerName)}</td>
+                        <td data-label="Brand">${escapeHtml(s.brand)}</td>
+                        <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
+                        <td data-label="Seller's Price"><strong>${s.sellerSetPrice != null ? formatCurrency(s.sellerSetPrice) : '—'}</strong></td>
+                        <td data-label="Expiry">${s.expiryDate}</td>
+                        <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
+                        <td data-label="Actions">
+                            <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Verify &amp; List</button>
+                            <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
+                            <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                        </td>
+                    </tr>
+                `
+                    )
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+}
+
 function renderFilteredListingsTable(listings) {
     const container = document.getElementById('allListingsTable');
     if (!container) return;
@@ -2979,20 +3395,21 @@ async function approveSubmission(submissionDbId) {
             saleMode: sub.saleMode,
             offerAmount: sub.offerAmount
         });
-        await notifySeller(
-            sub.sellerId,
-            `Your ${sub.brand} card submission was approved!`,
-            `<p>Hi ${escapeHtml(sub.sellerName)},</p>
+        await notifyBoth({
+            eventType: 'submission_approved',
+            relatedId: submissionDbId,
+            adminSubject: `Submission Approved: ${sub.brand} #${sub.id}`,
+            adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub.sellerName)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Mode:</strong> ${sub.saleMode}</p><p><strong>Offer:</strong> ${formatCurrency(sub.offerAmount)}</p>`,
+            sellerId: sub.sellerId,
+            sellerSubject: `Your ${sub.brand} card submission was approved!`,
+            sellerBody: `<p>Hi ${escapeHtml(sub.sellerName)},</p>
              <p>Good news — your ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.id)}) has been verified and approved.</p>
              ${
                  sub.saleMode === 'marketplace'
-                     ? `<p>It's now listed on the Giftlio marketplace. You'll be paid <strong>${formatCurrency(sub.offerAmount)}</strong> once a buyer purchases it.</p>`
-                     : `<p>Your payout of <strong>${formatCurrency(sub.offerAmount)}</strong> is on its way.</p>`
-             }
-             <p>You can track this anytime from your seller dashboard.</p>`,
-            'submission_approved',
-            submissionDbId
-        );
+                     ? `<p>It's now live on the Giftlio marketplace at your asking price. You'll be paid <strong>${formatCurrency(sub.offerAmount)}</strong> once a buyer purchases it -- we'll email you the moment that happens.</p>`
+                     : `<p>Your payout of <strong>${formatCurrency(sub.offerAmount)}</strong> is on its way. This card is now Giftlio's, so there's nothing further for you to track -- you're all done here.</p>`
+             }`
+        });
 
         showToast('success', 'Submission approved and listed on marketplace!');
         renderAdmin();
@@ -3052,6 +3469,20 @@ async function notifySeller(sellerId, subject, bodyHtml, eventType, relatedId) {
     } catch (error) {
         console.error('notifySeller failed:', error);
         showToast('warning', 'Could not email the seller about this outcome.');
+    }
+}
+
+/**
+ * Sends BOTH the admin notification (always, every event, both models --
+ * admin needs full visibility) AND the seller notification (content and
+ * whether it fires at all depends on their sale mode). This is the
+ * standard entry point for submission-lifecycle events now; call
+ * notifyAdmin/notifySeller directly only for one-sided events.
+ */
+async function notifyBoth({ eventType, relatedId, adminSubject, adminBody, sellerId, sellerSubject, sellerBody }) {
+    await notifyAdmin(eventType, adminSubject, adminBody, relatedId);
+    if (sellerId && sellerSubject && sellerBody) {
+        await notifySeller(sellerId, sellerSubject, sellerBody, eventType, relatedId);
     }
 }
 
@@ -3207,15 +3638,17 @@ async function markSubmissionPaid(submissionDbId) {
                     if (error) throw error;
                 });
                 await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
-                await notifySeller(
-                    sub?.seller_id,
-                    `Your payout for ${sub?.brand} has been sent`,
-                    `<p>Hi ${escapeHtml(sub?.seller_name || '')},</p>
+                await notifyBoth({
+                    eventType: 'payout_marked_paid',
+                    relatedId: submissionDbId,
+                    adminSubject: `Payout Marked Paid: ${sub?.brand} #${sub?.public_id}`,
+                    adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub?.seller_name || '')}</p><p><strong>Amount:</strong> ${formatCurrency(sub?.offer_amount || 0)}</p>`,
+                    sellerId: sub?.seller_id,
+                    sellerSubject: `Your payout for ${sub?.brand} has been sent`,
+                    sellerBody: `<p>Hi ${escapeHtml(sub?.seller_name || '')},</p>
                      <p>Your payout of <strong>${formatCurrency(sub?.offer_amount || 0)}</strong> for your ${escapeHtml(sub?.brand || '')} card (#${escapeHtml(sub?.public_id || '')}) has been sent.</p>
-                     <p>Thanks for selling with Giftlio!</p>`,
-                    'payout_marked_paid',
-                    submissionDbId
-                );
+                     <p>Thanks for selling with Giftlio!</p>`
+                });
                 showToast('success', 'Marked as paid.');
                 renderAdmin();
             } catch (error) {
@@ -3250,16 +3683,18 @@ async function rejectSubmission(submissionDbId) {
                 });
 
                 await logAdminAction('reject_submission', 'submission', submissionDbId, sub.brand, { reason, seller: sub.seller_name });
-                await notifySeller(
-                    sub.seller_id,
-                    `Your ${sub.brand} card submission wasn't approved`,
-                    `<p>Hi ${escapeHtml(sub.seller_name)},</p>
+                await notifyBoth({
+                    eventType: 'submission_rejected',
+                    relatedId: submissionDbId,
+                    adminSubject: `Submission Rejected: ${sub.brand} #${sub.public_id}`,
+                    adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub.seller_name)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p>`,
+                    sellerId: sub.seller_id,
+                    sellerSubject: `Your ${sub.brand} card submission wasn't approved`,
+                    sellerBody: `<p>Hi ${escapeHtml(sub.seller_name)},</p>
                      <p>Your submission for a ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.public_id)}) wasn't approved.</p>
                      <p><strong>Reason:</strong> ${escapeHtml(reason)}</p>
-                     <p>If you have questions, reply to this email or contact support@giftlio.co.nz.</p>`,
-                    'submission_rejected',
-                    submissionDbId
-                );
+                     <p>If you have questions, reply to this email or contact support@giftlio.co.nz.</p>`
+                });
 
                 showToast('info', `Submission rejected: ${reason}`);
                 renderAdmin();
