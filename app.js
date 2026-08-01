@@ -58,7 +58,9 @@ const AppState = {
     checkoutStep: DEFAULT_CHECKOUT_STEP,
     currentOrder: null,
     activeCategory: null,
-    brandDiscounts: {}
+    brandDiscounts: {},
+    auditLogRows: [],
+    allListings: []
 };
 
 /**
@@ -493,7 +495,9 @@ function listingRowToView(row) {
         submissionId: row.submission_id,
         cardVaultId: row.card_vault_id,
         saleMode: row.sale_mode || 'instant',
-        sellerPayoutAmount: row.seller_payout_amount !== null && row.seller_payout_amount !== undefined ? Number(row.seller_payout_amount) : null
+        sellerPayoutAmount: row.seller_payout_amount !== null && row.seller_payout_amount !== undefined ? Number(row.seller_payout_amount) : null,
+        suspended: Boolean(row.suspended),
+        suspendedReason: row.suspended_reason || null
     };
 }
 
@@ -543,7 +547,7 @@ function orderRowToView(row) {
 async function fetchProfile(userId) {
     const { data, error } = await supabaseClient
         .from('profiles')
-        .select('id, name, email, role, created_at')
+        .select('id, name, email, role, created_at, suspended, suspended_reason')
         .eq('id', userId)
         .single();
 
@@ -554,7 +558,9 @@ async function fetchProfile(userId) {
         name: data.name,
         email: data.email,
         role: data.role,
-        created: data.created_at?.split('T')[0]
+        created: data.created_at?.split('T')[0],
+        suspended: Boolean(data.suspended),
+        suspendedReason: data.suspended_reason || null
     };
 }
 
@@ -879,6 +885,7 @@ async function getActiveListings() {
         .from('listings')
         .select('*')
         .eq('status', 'active')
+        .eq('suspended', false)
         .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -1871,6 +1878,11 @@ async function handleSubmission() {
         return;
     }
 
+    if (AppState.currentUser.suspended) {
+        showToast('error', `Your account is suspended and can't submit new cards. Reason: ${AppState.currentUser.suspendedReason || 'contact support'}.`);
+        return;
+    }
+
     clearErrors();
 
     const brand = document.getElementById('subBrand').value;
@@ -2140,7 +2152,7 @@ async function renderSellerEarnings() {
     try {
         await withLoading(async () => {
             const [{ data: subData, error: subError }, { data: listingData, error: listingError }] = await Promise.all([
-                supabaseClient.from('submissions').select('*').eq('seller_id', AppState.currentUser.id),
+                supabaseClient.from('submissions').select('*').eq('seller_id', AppState.currentUser.id).is('deleted_at', null),
                 supabaseClient.from('listings').select('*').eq('seller_id', AppState.currentUser.id)
             ]);
             if (subError) throw subError;
@@ -2204,7 +2216,7 @@ async function renderAdmin() {
             const [usersRes, listingsRes, submissionsRes, ordersRes] = await Promise.all([
                 supabaseClient.from('profiles').select('id'),
                 supabaseClient.from('listings').select('*'),
-                supabaseClient.from('submissions').select('*'),
+                supabaseClient.from('submissions').select('*').is('deleted_at', null),
                 supabaseClient.from('orders').select('*')
             ]);
 
@@ -2283,6 +2295,7 @@ async function renderAdmin() {
                                     <td data-label="Actions">
                                         <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Approve</button>
                                         <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
+                                        <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
                                     </td>
                                 </tr>
                             `
@@ -2338,49 +2351,12 @@ async function renderAdmin() {
                 `;
             }
 
-            document.getElementById('allListingsTable').innerHTML = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Brand</th>
-                            <th>Value</th>
-                            <th>Price</th>
-                            <th>Discount</th>
-                            <th>Seller</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${listings
-                            .map(
-                                (l) => {
-                                    const isZeroBalance = !(l.faceValue > 0) || !(l.salePrice > 0);
-                                    return `
-                            <tr class="${isZeroBalance ? 'row-warning' : ''}">
-                                <td data-label="ID">${l.id.slice(0, 8)}</td>
-                                <td data-label="Brand">${l.brand}</td>
-                                <td data-label="Value">${formatCurrency(l.faceValue)}${
-                                        isZeroBalance
-                                            ? '<span class="zero-balance-flag" title="Zero or invalid balance -- should never be purchasable. Investigate this listing."><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Zero balance</span>'
-                                            : ''
-                                    }</td>
-                                <td data-label="Price">${formatCurrency(l.salePrice)}</td>
-                                <td data-label="Discount">${l.discount}%</td>
-                                <td data-label="Seller">${l.seller}</td>
-                                <td data-label="Status"><span class="badge ${l.status === 'active' ? 'badge-green' : l.status === 'sold' ? 'badge-blue' : 'badge-gray'}">${l.status}</span></td>
-                            </tr>
-                        `;
-                                }
-                            )
-                            .join('')}
-                    </tbody>
-                </table>
-            `;
+            AppState.allListings = listings;
+            renderFilteredListingsTable(listings);
 
             const { data: fullUsers, error: fullUsersError } = await supabaseClient
                 .from('profiles')
-                .select('name, email, role, created_at')
+                .select('id, name, email, role, created_at, suspended')
                 .order('created_at', { ascending: false });
 
             if (fullUsersError) throw fullUsersError;
@@ -2392,7 +2368,9 @@ async function renderAdmin() {
                             <th>Name</th>
                             <th>Email</th>
                             <th>Role</th>
+                            <th>Status</th>
                             <th>Joined</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2400,10 +2378,16 @@ async function renderAdmin() {
                             .map(
                                 (u) => `
                             <tr>
-                                <td data-label="Name">${u.name}</td>
-                                <td data-label="Email">${u.email}</td>
+                                <td data-label="Name">${escapeHtml(u.name)}</td>
+                                <td data-label="Email">${escapeHtml(u.email)}</td>
                                 <td data-label="Role"><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
+                                <td data-label="Status">${u.suspended ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>'}</td>
                                 <td data-label="Joined">${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
+                                <td data-label="Actions">${
+                                    u.role === 'admin'
+                                        ? '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
+                                        : `<button class="btn btn-sm ${u.suspended ? 'btn-primary' : 'btn-outline btn-danger-outline'}" onclick="toggleSellerSuspension('${u.id}', '${escapeJsString(u.name)}', ${u.suspended})">${u.suspended ? 'Reinstate' : 'Suspend'}</button>`
+                                }</td>
                             </tr>
                         `
                             )
@@ -2414,10 +2398,350 @@ async function renderAdmin() {
         });
 
         await renderBrandDiscountsTable();
+        await renderAuditLog();
     } catch (error) {
         document.getElementById('adminSkeleton').classList.add('hidden');
         showError(error, 'Unable to load admin dashboard.');
     }
+}
+
+/**
+ * Renders the Active Listings table from an already-fetched array (client-
+ * side filtering, since this admin table isn't expected to hold enough
+ * rows to need server-side search at current volume). Called fresh, and
+ * again whenever a filter changes.
+ */
+function renderFilteredListingsTable(listings) {
+    const container = document.getElementById('allListingsTable');
+    if (!container) return;
+
+    if (listings.length === 0) {
+        container.innerHTML = '<p class="section-subtitle" style="padding: 16px 0;">No listings match these filters.</p>';
+        return;
+    }
+
+    container.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Brand</th>
+                    <th>Value</th>
+                    <th>Price</th>
+                    <th>Type</th>
+                    <th>Seller</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${listings
+                    .map((l) => {
+                        const isZeroBalance = !(l.faceValue > 0) || !(l.salePrice > 0);
+                        const displayStatus = l.suspended ? 'suspended' : l.status;
+                        const statusBadge =
+                            displayStatus === 'active' ? 'badge-green' : displayStatus === 'sold' ? 'badge-blue' : displayStatus === 'suspended' ? 'badge-yellow' : 'badge-gray';
+                        return `
+                    <tr class="${isZeroBalance ? 'row-warning' : ''}">
+                        <td data-label="ID">${l.id.slice(0, 8)}</td>
+                        <td data-label="Brand">${escapeHtml(l.brand)}</td>
+                        <td data-label="Value">${formatCurrency(l.faceValue)}${
+                            isZeroBalance
+                                ? '<span class="zero-balance-flag" title="Zero or invalid balance -- should never be purchasable. Investigate this listing."><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Zero balance</span>'
+                                : ''
+                        }</td>
+                        <td data-label="Price">${formatCurrency(l.salePrice)}</td>
+                        <td data-label="Type">${l.saleMode === 'marketplace' ? '<span class="submission-mode-tag marketplace">Marketplace</span>' : '<span class="submission-mode-tag instant">Instant</span>'}</td>
+                        <td data-label="Seller"><button class="link-btn" onclick="viewSellerHistory('${l.sellerId}', '${escapeJsString(l.seller)}')">${escapeHtml(l.seller)}</button></td>
+                        <td data-label="Status"><span class="badge ${statusBadge}">${displayStatus}</span></td>
+                        <td data-label="Actions">
+                            ${
+                                l.status !== 'sold'
+                                    ? `<button class="btn btn-sm ${l.suspended ? 'btn-primary' : 'btn-outline'}" onclick="toggleListingSuspension('${l.id}', '${escapeJsString(l.brand)}', ${l.suspended})">${l.suspended ? 'Unsuspend' : 'Suspend'}</button>
+                               <button class="btn btn-outline btn-sm btn-danger-outline" onclick="removeListing('${l.id}', '${escapeJsString(l.brand)}')">Remove</button>`
+                                    : '<span style="color: var(--gray-400); font-size: 12px;">Sold — locked</span>'
+                            }
+                        </td>
+                    </tr>
+                `;
+                    })
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function applyListingsFilters() {
+    const search = document.getElementById('listingsSearchInput').value.toLowerCase().trim();
+    const modeFilter = document.getElementById('listingsFilterMode').value;
+    const statusFilter = document.getElementById('listingsFilterStatus').value;
+
+    let filtered = AppState.allListings || [];
+
+    if (search) {
+        filtered = filtered.filter(
+            (l) => l.brand.toLowerCase().includes(search) || l.seller.toLowerCase().includes(search) || String(l.salePrice).includes(search) || String(l.faceValue).includes(search)
+        );
+    }
+    if (modeFilter) {
+        filtered = filtered.filter((l) => l.saleMode === modeFilter);
+    }
+    if (statusFilter === 'suspended') {
+        filtered = filtered.filter((l) => l.suspended);
+    } else if (statusFilter) {
+        filtered = filtered.filter((l) => l.status === statusFilter && !l.suspended);
+    }
+
+    renderFilteredListingsTable(filtered);
+}
+
+async function toggleListingSuspension(listingId, brand, currentlySuspended) {
+    showConfirmModal({
+        title: currentlySuspended ? 'Unsuspend Listing' : 'Suspend Listing',
+        message: currentlySuspended
+            ? `Unsuspend this ${brand} listing? It will reappear in the browse grid.`
+            : `Suspend this ${brand} listing? It will be hidden from the browse grid but kept in the database.`,
+        confirmLabel: currentlySuspended ? 'Unsuspend' : 'Suspend Listing',
+        danger: !currentlySuspended,
+        requireReason: !currentlySuspended,
+        reasonLabel: 'Reason for suspension',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('listings')
+                        .update({
+                            suspended: !currentlySuspended,
+                            suspended_reason: currentlySuspended ? null : reason,
+                            suspended_at: currentlySuspended ? null : new Date().toISOString(),
+                            suspended_by: currentlySuspended ? null : AppState.currentUser.id
+                        })
+                        .eq('id', listingId);
+                    if (error) throw error;
+                });
+                await logAdminAction(currentlySuspended ? 'unsuspend_listing' : 'suspend_listing', 'listing', listingId, brand, { reason });
+                showToast('success', currentlySuspended ? 'Listing unsuspended.' : 'Listing suspended.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to update listing.');
+            }
+        }
+    });
+}
+
+async function removeListing(listingId, brand) {
+    showConfirmModal({
+        title: 'Remove Listing',
+        message: `Permanently remove this ${brand} listing from the marketplace? This cannot be undone from the UI.`,
+        confirmLabel: 'Remove Permanently',
+        danger: true,
+        requireReason: true,
+        reasonLabel: 'Reason for removal',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('listings')
+                        .update({ status: 'inactive', removed_at: new Date().toISOString(), removed_by: AppState.currentUser.id })
+                        .eq('id', listingId);
+                    if (error) throw error;
+                });
+                await logAdminAction('remove_listing', 'listing', listingId, brand, { reason });
+                showToast('success', 'Listing removed.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to remove listing.');
+            }
+        }
+    });
+}
+
+/**
+ * Shows a seller's full history in a modal -- every submission and every
+ * listing they've ever had, for context before taking action on them.
+ */
+async function viewSellerHistory(sellerId, sellerName) {
+    const overlay = document.getElementById('sellerHistoryOverlay');
+    const modal = document.getElementById('sellerHistoryModal');
+    const content = document.getElementById('sellerHistoryContent');
+    content.innerHTML = `<h2 style="color: var(--navy); margin-bottom: 16px;">${escapeHtml(sellerName)}'s History</h2>` + renderSkeletonLines(4);
+    overlay.classList.remove('hidden');
+    modal.classList.remove('hidden');
+
+    try {
+        const [{ data: subs, error: subsError }, { data: listings, error: listingsError }, { data: profile, error: profileError }] = await Promise.all([
+            supabaseClient.from('submissions').select('*').eq('seller_id', sellerId).is('deleted_at', null).order('created_at', { ascending: false }),
+            supabaseClient.from('listings').select('*').eq('seller_id', sellerId).order('created_at', { ascending: false }),
+            supabaseClient.from('profiles').select('created_at, suspended, verification_status').eq('id', sellerId).single()
+        ]);
+        if (subsError) throw subsError;
+        if (listingsError) throw listingsError;
+        if (profileError) throw profileError;
+
+        const rejectedCount = (subs || []).filter((s) => s.status === 'rejected').length;
+        const soldCount = (listings || []).filter((l) => l.status === 'sold').length;
+
+        content.innerHTML = `
+            <h2 style="color: var(--navy); margin-bottom: 4px;">${escapeHtml(sellerName)}'s History</h2>
+            <p class="section-subtitle" style="margin-bottom: 16px;">
+                Account since ${new Date(profile.created_at).toLocaleDateString('en-NZ')} ·
+                ${profile.suspended ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>'} ·
+                Verification: ${escapeHtml(profile.verification_status)}
+            </p>
+            <div class="summary-cards" style="margin-bottom: 20px;">
+                <div class="summary-card"><div class="summary-label">Submissions</div><div class="summary-value">${(subs || []).length}</div></div>
+                <div class="summary-card"><div class="summary-label">Rejected</div><div class="summary-value">${rejectedCount}</div></div>
+                <div class="summary-card"><div class="summary-label">Cards Sold</div><div class="summary-value">${soldCount}</div></div>
+            </div>
+            <h3 style="margin-bottom: 8px;">Recent Submissions</h3>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>Brand</th><th>Value</th><th>Status</th><th>Date</th></tr></thead>
+                    <tbody>
+                        ${(subs || [])
+                            .slice(0, 10)
+                            .map(
+                                (s) => `<tr><td data-label="Brand">${escapeHtml(s.brand)}</td><td data-label="Value">${formatCurrency(s.face_value)}</td><td data-label="Status">${escapeHtml(s.status)}</td><td data-label="Date">${new Date(s.created_at).toLocaleDateString('en-NZ')}</td></tr>`
+                            )
+                            .join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = '<p>Unable to load seller history.</p>';
+        console.error(error);
+    }
+}
+
+function closeSellerHistoryModal() {
+    document.getElementById('sellerHistoryOverlay').classList.add('hidden');
+    document.getElementById('sellerHistoryModal').classList.add('hidden');
+}
+
+/**
+ * Renders the admin Audit Log table with the current filter selections.
+ * Called on the admin page load, and again whenever a filter is applied.
+ */
+async function renderAuditLog() {
+    const container = document.getElementById('auditLogTable');
+    if (!container) return;
+    container.innerHTML = renderSkeletonTableRows(5, 6);
+
+    try {
+        let query = supabaseClient.from('admin_audit_log').select('*').order('created_at', { ascending: false }).limit(200);
+
+        const adminFilter = document.getElementById('auditFilterAdmin').value;
+        const actionFilter = document.getElementById('auditFilterAction').value;
+        const fromFilter = document.getElementById('auditFilterFrom').value;
+        const toFilter = document.getElementById('auditFilterTo').value;
+
+        if (adminFilter) query = query.eq('admin_id', adminFilter);
+        if (actionFilter) query = query.eq('action_type', actionFilter);
+        if (fromFilter) query = query.gte('created_at', `${fromFilter}T00:00:00`);
+        if (toFilter) query = query.lte('created_at', `${toFilter}T23:59:59`);
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        AppState.auditLogRows = data || [];
+
+        const adminSelect = document.getElementById('auditFilterAdmin');
+        const actionSelect = document.getElementById('auditFilterAction');
+        if (adminSelect.options.length === 1) {
+            const uniqueAdmins = [...new Map((data || []).map((r) => [r.admin_id, r.admin_name])).entries()];
+            uniqueAdmins.forEach(([id, name]) => {
+                if (!id) return;
+                adminSelect.insertAdjacentHTML('beforeend', `<option value="${id}">${escapeHtml(name)}</option>`);
+            });
+        }
+        if (actionSelect.options.length === 1) {
+            const uniqueActions = [...new Set((data || []).map((r) => r.action_type))];
+            uniqueActions.forEach((a) => {
+                actionSelect.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(a)}">${escapeHtml(a.replace(/_/g, ' '))}</option>`);
+            });
+        }
+
+        if (!data || data.length === 0) {
+            container.innerHTML = '<p class="section-subtitle" style="padding: 16px 0;">No audit log entries match these filters.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Admin</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Brand</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data
+                        .map(
+                            (row) => `
+                        <tr>
+                            <td data-label="When">${new Date(row.created_at).toLocaleString('en-NZ')}</td>
+                            <td data-label="Admin">${escapeHtml(row.admin_name)}</td>
+                            <td data-label="Action"><span class="badge badge-blue">${escapeHtml(row.action_type.replace(/_/g, ' '))}</span></td>
+                            <td data-label="Target">${escapeHtml(row.target_type)}${row.target_id ? ' #' + row.target_id.slice(0, 8) : ''}</td>
+                            <td data-label="Brand">${row.brand ? escapeHtml(row.brand) : '—'}</td>
+                            <td data-label="Details">${row.details ? escapeHtml(JSON.stringify(row.details)) : '—'}</td>
+                        </tr>
+                    `
+                        )
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load audit log.');
+    }
+}
+
+function applyAuditLogFilters() {
+    renderAuditLog();
+}
+
+/**
+ * Exports the currently-loaded (filtered) audit log rows as a CSV download.
+ */
+function exportAuditLogCsv() {
+    const rows = AppState.auditLogRows || [];
+    if (rows.length === 0) {
+        showToast('warning', 'No rows to export -- adjust your filters first.');
+        return;
+    }
+
+    const headers = ['When', 'Admin', 'Action', 'Target Type', 'Target ID', 'Brand', 'Details'];
+    const csvRows = [headers.join(',')];
+
+    rows.forEach((row) => {
+        const line = [
+            new Date(row.created_at).toISOString(),
+            row.admin_name,
+            row.action_type,
+            row.target_type,
+            row.target_id || '',
+            row.brand || '',
+            row.details ? JSON.stringify(row.details) : ''
+        ].map((val) => `"${String(val).replace(/"/g, '""')}"`);
+        csvRows.push(line.join(','));
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `giftlio-audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('success', `Exported ${rows.length} audit log entries.`);
 }
 
 /**
@@ -2514,6 +2838,7 @@ async function saveBrandDiscount(brand, inputId, errorId, checkboxId) {
         if (error) throw error;
 
         AppState.brandDiscounts[brand] = { discountPercent: num, instantSellAvailable };
+        await logAdminAction('update_brand_discount', 'brand', null, brand, { discountPercent: num, instantSellAvailable });
         showToast('success', `${brand} updated: ${num}% discount, ${instantSellAvailable ? 'available' : 'hidden'} for Instant Sell. Applies immediately.`);
         await renderBrandDiscountsTable();
     } catch (error) {
@@ -2632,6 +2957,18 @@ async function approveSubmission(submissionDbId) {
             if (updateError) throw updateError;
         });
 
+        await logAdminAction('approve_submission', 'submission', submissionDbId, sub.brand, {
+            seller: sub.sellerName,
+            saleMode: sub.saleMode,
+            offerAmount: sub.offerAmount
+        });
+        await notifyAdmin(
+            'submission_approved',
+            `Submission Approved: ${sub.brand} #${sub.id}`,
+            `<p><strong>Seller:</strong> ${escapeHtml(sub.sellerName)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Mode:</strong> ${sub.saleMode}</p><p><strong>Offer:</strong> ${formatCurrency(sub.offerAmount)}</p>`,
+            submissionDbId
+        );
+
         showToast('success', 'Submission approved and listed on marketplace!');
         renderAdmin();
     } catch (error) {
@@ -2639,25 +2976,243 @@ async function approveSubmission(submissionDbId) {
     }
 }
 
-async function rejectSubmission(submissionDbId) {
-    const reason = prompt('Enter rejection reason:');
-    if (!reason) return;
-
+/**
+ * Logs an admin action to admin_audit_log. Called by every admin action in
+ * this file -- approve, reject, edit, delete, suspend, mark paid, listing
+ * suspend/remove, dispute actions. Never blocks the action itself if
+ * logging fails (a failed log write shouldn't stop an admin from doing
+ * their job), but does surface a toast so it's not silently lost.
+ */
+async function logAdminAction(actionType, targetType, targetId, brand, details) {
     try {
-        await withLoading(async () => {
-            const { error } = await supabaseClient
-                .from('submissions')
-                .update({ status: 'rejected', admin_notes: reason, updated_at: new Date().toISOString() })
-                .eq('id', submissionDbId);
-
-            if (error) throw error;
+        const { error } = await supabaseClient.from('admin_audit_log').insert({
+            admin_id: AppState.currentUser.id,
+            admin_name: AppState.currentUser.name,
+            action_type: actionType,
+            target_type: targetType,
+            target_id: targetId || null,
+            brand: brand || null,
+            details: details || null
         });
-
-        showToast('info', `Submission rejected. Reason: ${reason}`);
-        renderAdmin();
+        if (error) throw error;
     } catch (error) {
-        showError(error, 'Unable to reject submission.');
+        console.error('Failed to write audit log entry:', error);
+        showToast('warning', 'Action completed, but the audit log entry failed to save.');
     }
+}
+
+/**
+ * Sends an admin notification email via the reusable /api/send-notification
+ * endpoint. Every event type calls this same function -- adding a new
+ * alert (low inventory, suspicious activity, dispute raised) anywhere else
+ * in the app is one call to notifyAdmin(...), not a new endpoint.
+ */
+async function notifyAdmin(eventType, subject, bodyHtml, relatedId) {
+    try {
+        const response = await fetch('/api/send-notification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eventType, subject, bodyHtml, relatedId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Notification failed');
+        if (data.queued) {
+            showToast('warning', 'Notification email is queued for retry (send failed once).');
+        }
+    } catch (error) {
+        console.error('notifyAdmin failed:', error);
+        showToast('warning', 'Could not send the admin notification email.');
+    }
+}
+
+/**
+ * Generic confirmation modal, replacing native confirm()/prompt() dialogs
+ * across the admin panel. onConfirm receives the reason text if
+ * requireReason is true, otherwise undefined.
+ */
+function showConfirmModal({ title, message, confirmLabel = 'Confirm', danger = false, requireReason = false, reasonLabel = 'Reason', onConfirm }) {
+    const overlay = document.getElementById('confirmModalOverlay');
+    const modal = document.getElementById('confirmModal');
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalMessage').textContent = message;
+    const reasonGroup = document.getElementById('confirmModalReasonGroup');
+    const reasonInput = document.getElementById('confirmModalReasonInput');
+    const reasonErr = document.getElementById('confirmModalReasonError');
+    reasonInput.value = '';
+    reasonErr.textContent = '';
+    document.getElementById('confirmModalReasonLabel').textContent = reasonLabel;
+    reasonGroup.classList.toggle('hidden', !requireReason);
+
+    const confirmBtn = document.getElementById('confirmModalConfirmBtn');
+    confirmBtn.textContent = confirmLabel;
+    confirmBtn.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+
+    const handler = () => {
+        if (requireReason && !reasonInput.value.trim()) {
+            reasonErr.textContent = 'This field is required.';
+            reasonInput.classList.add('field-error');
+            return;
+        }
+        overlay.classList.add('hidden');
+        modal.classList.add('hidden');
+        confirmBtn.removeEventListener('click', handler);
+        onConfirm(requireReason ? reasonInput.value.trim() : undefined);
+    };
+    confirmBtn.addEventListener('click', handler);
+
+    overlay.classList.remove('hidden');
+    modal.classList.remove('hidden');
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModalOverlay').classList.add('hidden');
+    document.getElementById('confirmModal').classList.add('hidden');
+}
+
+/**
+ * Soft-deletes a submission (sets deleted_at, never actually removes the
+ * row) -- financial records stay in the database for audit/dispute
+ * purposes even when an admin "deletes" them from their working view.
+ */
+async function deleteSubmission(submissionDbId) {
+    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name').eq('id', submissionDbId).single();
+
+    showConfirmModal({
+        title: 'Delete Submission',
+        message: `Delete ${sub?.brand || ''} card #${sub?.public_id || ''} from ${sub?.seller_name || 'this seller'}? This removes it from your working view, but the record is kept for audit purposes.`,
+        confirmLabel: 'Delete Submission',
+        danger: true,
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('submissions')
+                        .update({ deleted_at: new Date().toISOString(), deleted_by: AppState.currentUser.id })
+                        .eq('id', submissionDbId);
+                    if (error) throw error;
+                });
+                await logAdminAction('delete_submission', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name });
+                showToast('info', 'Submission deleted from your working view.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to delete submission.');
+            }
+        }
+    });
+}
+
+/**
+ * Suspends or unsuspends a seller account. A suspended seller can't submit
+ * new cards or have pending submissions approved (checked in
+ * handleSubmission and approveSubmission via profiles.suspended).
+ */
+async function toggleSellerSuspension(sellerId, sellerName, currentlySuspended) {
+    showConfirmModal({
+        title: currentlySuspended ? 'Reinstate Seller' : 'Suspend Seller',
+        message: currentlySuspended
+            ? `Reinstate ${sellerName}? They'll be able to submit and sell cards again.`
+            : `Suspend ${sellerName}? They won't be able to submit new cards while suspended.`,
+        confirmLabel: currentlySuspended ? 'Reinstate' : 'Suspend Seller',
+        danger: !currentlySuspended,
+        requireReason: !currentlySuspended,
+        reasonLabel: 'Reason for suspension',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('profiles')
+                        .update({
+                            suspended: !currentlySuspended,
+                            suspended_reason: currentlySuspended ? null : reason,
+                            suspended_at: currentlySuspended ? null : new Date().toISOString()
+                        })
+                        .eq('id', sellerId);
+                    if (error) throw error;
+                });
+                await logAdminAction(currentlySuspended ? 'reinstate_seller' : 'suspend_seller', 'seller', sellerId, null, { sellerName, reason });
+                showToast('success', currentlySuspended ? `${sellerName} reinstated.` : `${sellerName} suspended.`);
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to update seller status.');
+            }
+        }
+    });
+}
+
+/**
+ * Marks a submission as paid -- for Marketplace-mode sellers, whose payout
+ * only becomes real once admin confirms the bank transfer (the Friday
+ * payout batch). Instant Sell submissions are already treated as paid at
+ * approval, so this action is really for Marketplace mode.
+ */
+async function markSubmissionPaid(submissionDbId) {
+    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name, offer_amount').eq('id', submissionDbId).single();
+
+    showConfirmModal({
+        title: 'Mark as Paid',
+        message: `Confirm ${sub ? formatCurrency(sub.offer_amount) : ''} has been paid to ${sub?.seller_name || 'this seller'} for ${sub?.brand || ''} #${sub?.public_id || ''}?`,
+        confirmLabel: 'Confirm Paid',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient.from('submissions').update({ paid_at: new Date().toISOString() }).eq('id', submissionDbId);
+                    if (error) throw error;
+                });
+                await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
+                await notifyAdmin(
+                    'payout_marked_paid',
+                    `Payout Marked Paid: ${sub?.brand} #${sub?.public_id}`,
+                    `<p><strong>Seller:</strong> ${escapeHtml(sub?.seller_name || '')}</p><p><strong>Amount:</strong> ${formatCurrency(sub?.offer_amount || 0)}</p>`,
+                    submissionDbId
+                );
+                showToast('success', 'Marked as paid.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to mark as paid.');
+            }
+        }
+    });
+}
+
+async function rejectSubmission(submissionDbId) {
+    const { data: sub, error: fetchError } = await supabaseClient.from('submissions').select('*').eq('id', submissionDbId).single();
+    if (fetchError) {
+        showError(fetchError, 'Unable to load this submission.');
+        return;
+    }
+
+    showConfirmModal({
+        title: 'Reject Submission',
+        message: `Reject ${sub.brand} card #${sub.public_id} from ${sub.seller_name}? A reason is required and will be shown to the seller.`,
+        confirmLabel: 'Reject Submission',
+        danger: true,
+        requireReason: true,
+        reasonLabel: 'Rejection reason',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('submissions')
+                        .update({ status: 'rejected', rejection_reason: reason, admin_notes: reason, updated_at: new Date().toISOString() })
+                        .eq('id', submissionDbId);
+                    if (error) throw error;
+                });
+
+                await logAdminAction('reject_submission', 'submission', submissionDbId, sub.brand, { reason, seller: sub.seller_name });
+                await notifyAdmin(
+                    'submission_rejected',
+                    `Submission Rejected: ${sub.brand} #${sub.public_id}`,
+                    `<p><strong>Seller:</strong> ${escapeHtml(sub.seller_name)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p>`,
+                    submissionDbId
+                );
+
+                showToast('info', `Submission rejected: ${reason}`);
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to reject submission.');
+            }
+        }
+    });
 }
 
 async function deliverOrder(orderDbId) {
