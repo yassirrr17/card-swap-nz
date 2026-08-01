@@ -76,6 +76,40 @@ const AppState = {
  * so a change an admin just saved takes effect on the very next read, no
  * stale in-memory copy and no redeploy.
  */
+/**
+ * Subscribes to live changes on brand_discounts via Supabase Realtime,
+ * set up once at app startup. This is what makes an admin's saved change
+ * reach an ALREADY-OPEN Sell page or admin table instantly -- re-fetching
+ * on navigation (which renderSellPage/renderBrandDiscountsTable already do)
+ * only helps a page opened AFTER the change; this covers the page that was
+ * already sitting open when the change happened, with no refresh, no
+ * re-navigation, nothing for the user to do.
+ */
+function subscribeToBrandDiscountChanges() {
+    supabaseClient
+        .channel('brand_discounts_live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'brand_discounts' }, async () => {
+            await loadBrandDiscounts();
+
+            // If the Sell page is the one currently visible, refresh its
+            // dropdown and live offer estimate immediately.
+            const sellSection = document.getElementById('sell-section');
+            if (sellSection && !sellSection.classList.contains('hidden')) {
+                populateBrandDropdown();
+                updateOffer();
+            }
+
+            // If the admin's Brand Discounts table is currently visible,
+            // refresh it too, so a second admin (or a second tab) sees the
+            // other's change live.
+            const brandTable = document.getElementById('brandDiscountsTable');
+            if (brandTable && brandTable.closest('.page-section') && !brandTable.closest('.page-section').classList.contains('hidden')) {
+                await renderBrandDiscountsTable();
+            }
+        })
+        .subscribe();
+}
+
 async function loadBrandDiscounts() {
     const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent, instant_sell_available');
     if (error) {
@@ -2964,6 +2998,7 @@ async function initializeApp() {
 
     setupEventListeners();
     await checkAuth();
+    subscribeToBrandDiscountChanges();
 
     // Password reset links land here with #access_token=...&type=recovery
     // in the URL. Routing now uses real paths (pushState), not the hash, so
