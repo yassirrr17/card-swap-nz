@@ -610,7 +610,7 @@
                         <form id="submissionForm" novalidate onsubmit="event.preventDefault(); handleSubmission();">
                             <div class="form-group">
                                 <label for="subBrand">Retailer / Brand *</label>
-                                <select id="subBrand">
+                                <select id="subBrand" onchange="updateOffer()">
                                     <option value="">Select a brand</option>
                                     <option>The Warehouse</option>
                                     <option>Woolworths</option>
