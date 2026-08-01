@@ -1481,6 +1481,15 @@ tr:hover td {
 }
 
 /* ===== PAYOUT INFO ===== */
+.earn-pending-note {
+    font-size: 13px;
+    color: var(--gray-600);
+    background: var(--gray-50);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-bottom: 16px;
+}
+
 .payout-info {
     background: var(--gray-50);
     padding: 20px;
@@ -2347,35 +2356,44 @@ tr:hover td {
 .delivery-preview-note { font-size: 11.5px; color: var(--gray-500); line-height: 1.5; }
 
 /* ===== CONTACT PAGE ===== */
-.contact-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
+.contact-form {
+    max-width: 560px;
     margin-top: 32px;
 }
-@media (max-width: 640px) {
-    .contact-grid { grid-template-columns: 1fr; }
+
+.contact-form textarea {
+    resize: vertical;
 }
-.contact-card {
-    background: var(--white);
-    border: 1px solid var(--gray-200);
-    border-radius: var(--radius-xl);
-    padding: 28px 22px;
-    text-align: center;
+
+.contact-direct {
+    max-width: 560px;
+    margin-top: 40px;
+    padding-top: 32px;
+    border-top: 1px solid var(--gray-200);
 }
-.contact-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--navy);
+
+.contact-direct p {
+    font-size: 13px;
+    color: var(--gray-600);
+    margin-bottom: 6px;
+}
+
+.contact-direct-email {
+    display: inline-block;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 10px;
+}
+
+.contact-direct-email:hover {
     color: var(--gold);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 16px;
 }
-.contact-card h3 { font-size: 16px; color: var(--navy); margin-bottom: 8px; }
-.contact-card p { font-size: 13.5px; color: var(--gray-600); margin-bottom: 16px; line-height: 1.6; }
+
+.contact-direct-note {
+    font-size: 12.5px;
+    color: var(--gray-500);
+}
 
 /* ===== 404 PAGE ===== */
 .not-found-page { text-align: center; padding: 70px 24px; }
@@ -2793,4 +2811,86 @@ tr:hover td {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+}
+
+/* ===== SALE MODE CHOICE (sell submission form) ===== */
+.sale-mode-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.sale-mode-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border: 1.5px solid var(--gray-300);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.sale-mode-option:hover {
+    border-color: var(--navy);
+}
+
+.sale-mode-option.selected {
+    border-color: var(--gold);
+    background: rgba(31,77,58,0.04);
+}
+
+.sale-mode-option input[type="radio"] {
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    flex-shrink: 0;
+    accent-color: var(--navy);
+}
+
+.sale-mode-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sale-mode-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--navy);
+    display: flex;
+    align-items: center;
+}
+
+.sale-mode-desc {
+    font-size: 12.5px;
+    color: var(--gray-600);
+    line-height: 1.5;
+}
+
+.field-hint-text {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-top: 6px;
+}
+
+/* Submission card mode tag (Instant Sell vs Marketplace) */
+.submission-mode-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.submission-mode-tag.instant {
+    background: rgba(16,20,46,0.08);
+    color: var(--navy);
+}
+
+.submission-mode-tag.marketplace {
+    background: rgba(31,77,58,0.1);
+    color: var(--gold);
 }
