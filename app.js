@@ -1,6 +1,5 @@
 const DEFAULT_CHECKOUT_STEP = 1;
 const MAX_CHECKOUT_STEP = 4;
-const DEFAULT_LISTING_PRICE_FACTOR = 0.9;
 const SELLER_OFFER_RATE = 0.85;
 const MARKETPLACE_COMMISSION_RATE = 0.10;
 
@@ -59,8 +58,30 @@ const AppState = {
     currentListing: null,
     checkoutStep: DEFAULT_CHECKOUT_STEP,
     currentOrder: null,
-    activeCategory: null
+    activeCategory: null,
+    brandDiscounts: {}
 };
+
+/**
+ * Fetches every brand's current discount percentage from the database and
+ * caches it in AppState. Called fresh whenever admin approval or the brand
+ * discount management page needs current values, so a change an admin just
+ * saved takes effect on the very next approval -- no redeploy, no stale
+ * in-memory copy from page load.
+ */
+async function loadBrandDiscounts() {
+    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent');
+    if (error) {
+        console.error('Failed to load brand discounts:', error);
+        return AppState.brandDiscounts;
+    }
+    const map = {};
+    (data || []).forEach((row) => {
+        map[row.brand] = Number(row.discount_percent);
+    });
+    AppState.brandDiscounts = map;
+    return map;
+}
 
 function toggleSafeItem(button) {
     const item = button.closest('.safe-item');
@@ -817,7 +838,15 @@ async function getActiveListings() {
         .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return (data || []).map(listingRowToView);
+
+    // Defense in depth: a listing should never have a zero/negative sale
+    // price or face value (the pricing helper prevents this at creation),
+    // but if one somehow exists -- a direct DB edit, a bug elsewhere -- it
+    // must never be purchasable to a buyer. Filtered out here, not just
+    // hidden with CSS.
+    return (data || [])
+        .map(listingRowToView)
+        .filter((l) => l.salePrice > 0 && l.faceValue > 0);
 }
 
 /**
@@ -1293,8 +1322,7 @@ function startCheckout() {
         buyerName: AppState.currentUser.name,
         buyerEmail: AppState.currentUser.email,
         buyerPhone: '',
-        serviceFee: AppState.currentListing.salePrice * 0.05,
-        total: AppState.currentListing.salePrice * 1.05
+        ...GiftlioPricing.calculateCheckoutTotal(AppState.currentListing.salePrice)
     };
 
     updateCheckoutSteps();
@@ -1732,39 +1760,48 @@ async function handleSubmission() {
     clearErrors();
 
     const brand = document.getElementById('subBrand').value;
-    const value = parseFloat(document.getElementById('subValue').value);
-    const balance = parseFloat(document.getElementById('subBalance').value);
+    const valueRaw = document.getElementById('subValue').value;
+    const balanceRaw = document.getElementById('subBalance').value;
+    const value = Number(valueRaw);
+    const balance = Number(balanceRaw);
     const expiry = document.getElementById('subExpiry').value;
     const cardNum = document.getElementById('subCardNum').value;
     const pin = document.getElementById('subPin').value;
     const terms = document.getElementById('subTerms').checked;
     const saleMode = getSelectedSaleMode();
-    const sellerSetPrice = saleMode === 'marketplace' ? parseFloat(document.getElementById('subSellerPrice').value) : null;
+    const sellerSetPriceRaw = saleMode === 'marketplace' ? document.getElementById('subSellerPrice').value : null;
+    const sellerSetPrice = sellerSetPriceRaw !== null ? Number(sellerSetPriceRaw) : null;
 
     let hasError = false;
     if (!brand) {
         setFieldError('subBrand', 'subBrandError', 'Select which retailer this card is from');
         hasError = true;
     }
-    if (!value || value <= 0) {
-        setFieldError('subValue', 'subValueError', 'Enter the card\'s original value');
+
+    const faceValueCheck = GiftlioPricing.validateFaceValue(valueRaw);
+    if (!faceValueCheck.valid) {
+        setFieldError('subValue', 'subValueError', faceValueCheck.error);
         hasError = true;
     }
-    if (!balance || balance <= 0) {
-        setFieldError('subBalance', 'subBalanceError', 'Enter the current remaining balance');
+
+    // Only check the balance against face value if the face value itself
+    // was valid -- otherwise "balance exceeds value" is a confusing error
+    // to show on top of an already-broken value field.
+    const balanceCheck = GiftlioPricing.validateBalance(balanceRaw, faceValueCheck.valid ? value : null);
+    if (!balanceCheck.valid) {
+        setFieldError('subBalance', 'subBalanceError', balanceCheck.error);
         hasError = true;
     }
-    if (balance > value) {
-        setFieldError('subBalance', 'subBalanceError', 'Balance can\'t be more than the card\'s original value');
-        hasError = true;
-    }
-    if (saleMode === 'marketplace' && (!sellerSetPrice || sellerSetPrice <= 0)) {
-        setFieldError('subSellerPrice', 'subSellerPriceError', 'Enter your asking price');
-        hasError = true;
-    }
-    if (saleMode === 'marketplace' && sellerSetPrice > balance) {
-        setFieldError('subSellerPrice', 'subSellerPriceError', 'Asking price can\'t be more than the card\'s balance');
-        hasError = true;
+
+    if (saleMode === 'marketplace') {
+        const priceCheck = GiftlioPricing.validateFaceValue(sellerSetPriceRaw);
+        if (!priceCheck.valid) {
+            setFieldError('subSellerPrice', 'subSellerPriceError', 'Enter your asking price');
+            hasError = true;
+        } else if (balanceCheck.valid && sellerSetPrice > balance) {
+            setFieldError('subSellerPrice', 'subSellerPriceError', "Asking price can't be more than the card's balance");
+            hasError = true;
+        }
     }
     if (!expiry) {
         setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date');
@@ -2185,17 +2222,24 @@ async function renderAdmin() {
                     <tbody>
                         ${listings
                             .map(
-                                (l) => `
-                            <tr>
+                                (l) => {
+                                    const isZeroBalance = !(l.faceValue > 0) || !(l.salePrice > 0);
+                                    return `
+                            <tr class="${isZeroBalance ? 'row-warning' : ''}">
                                 <td data-label="ID">${l.id.slice(0, 8)}</td>
                                 <td data-label="Brand">${l.brand}</td>
-                                <td data-label="Value">${formatCurrency(l.faceValue)}</td>
+                                <td data-label="Value">${formatCurrency(l.faceValue)}${
+                                        isZeroBalance
+                                            ? '<span class="zero-balance-flag" title="Zero or invalid balance -- should never be purchasable. Investigate this listing."><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>Zero balance</span>'
+                                            : ''
+                                    }</td>
                                 <td data-label="Price">${formatCurrency(l.salePrice)}</td>
                                 <td data-label="Discount">${l.discount}%</td>
                                 <td data-label="Seller">${l.seller}</td>
                                 <td data-label="Status"><span class="badge ${l.status === 'active' ? 'badge-green' : l.status === 'sold' ? 'badge-blue' : 'badge-gray'}">${l.status}</span></td>
                             </tr>
-                        `
+                        `;
+                                }
                             )
                             .join('')}
                     </tbody>
@@ -2236,9 +2280,99 @@ async function renderAdmin() {
                 </table>
             `;
         });
+
+        await renderBrandDiscountsTable();
     } catch (error) {
         document.getElementById('adminSkeleton').classList.add('hidden');
         showError(error, 'Unable to load admin dashboard.');
+    }
+}
+
+/**
+ * Renders the admin Brand Discounts management table -- every brand,
+ * its current discount percentage, an editable input, and a save button
+ * per row. Brands with no row yet in brand_discounts show the 15% default
+ * and get one created (upsert) the first time they're saved.
+ */
+async function renderBrandDiscountsTable() {
+    const container = document.getElementById('brandDiscountsTable');
+    if (!container) return;
+
+    container.innerHTML = renderSkeletonTableRows(3, 5);
+
+    try {
+        const discounts = await loadBrandDiscounts();
+        const allBrands = Object.keys(BRAND_COLORS).sort();
+
+        container.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Brand</th>
+                        <th>Current Discount</th>
+                        <th>New Discount (0-25%)</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${allBrands
+                        .map((brand) => {
+                            const current = discounts[brand] !== undefined ? discounts[brand] : GiftlioPricing.DEFAULT_DISCOUNT;
+                            const inputId = `brandDiscountInput-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
+                            const errorId = `${inputId}Error`;
+                            return `
+                        <tr>
+                            <td data-label="Brand"><strong>${escapeHtml(brand)}</strong></td>
+                            <td data-label="Current Discount">${current}%</td>
+                            <td data-label="New Discount">
+                                <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current}" style="width: 90px;">
+                                <span class="error-msg" id="${errorId}"></span>
+                            </td>
+                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}')">Save</button></td>
+                        </tr>
+                    `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load brand discounts.');
+    }
+}
+
+async function saveBrandDiscount(brand, inputId, errorId) {
+    const input = document.getElementById(inputId);
+    const errorEl = document.getElementById(errorId);
+    errorEl.textContent = '';
+    input.classList.remove('field-error');
+
+    const raw = input.value;
+    const num = Number(raw);
+
+    if (raw === '' || Number.isNaN(num) || !Number.isFinite(num)) {
+        input.classList.add('field-error');
+        errorEl.textContent = 'Enter a number';
+        return;
+    }
+    if (num < GiftlioPricing.MIN_DISCOUNT || num > GiftlioPricing.MAX_DISCOUNT) {
+        input.classList.add('field-error');
+        errorEl.textContent = `Must be ${GiftlioPricing.MIN_DISCOUNT}-${GiftlioPricing.MAX_DISCOUNT}`;
+        return;
+    }
+
+    try {
+        const { error } = await supabaseClient
+            .from('brand_discounts')
+            .upsert({ brand, discount_percent: num, updated_at: new Date().toISOString() }, { onConflict: 'brand' });
+
+        if (error) throw error;
+
+        AppState.brandDiscounts[brand] = num;
+        showToast('success', `${brand} discount updated to ${num}%. Applies to all new listings immediately.`);
+        await renderBrandDiscountsTable();
+    } catch (error) {
+        showError(error, 'Unable to save this discount.');
     }
 }
 
@@ -2256,18 +2390,44 @@ async function approveSubmission(submissionDbId) {
             const sub = submissionRowToView(subData);
             const listingFaceValue = sub.currentBalance;
 
-            // Instant Sell: Giftlio sets the resale price (existing behaviour,
-            // seller already paid via offer_amount at approval).
-            // Marketplace: the LISTING price is the seller's own asking price,
-            // not a Giftlio markup -- seller is paid seller_payout_amount only
-            // once a buyer actually purchases it.
+            // Defense in depth: re-validate the balance here too, not just
+            // on the submission form. A row could in principle be edited
+            // directly in the database, bypassing the form entirely.
+            const balanceCheck = GiftlioPricing.validateBalance(sub.currentBalance, sub.faceValue);
+            if (!balanceCheck.valid) {
+                throw new Error(`Cannot approve: ${balanceCheck.error}`);
+            }
+
+            // Instant Sell: Giftlio sets the resale price, from current
+            // balance and this brand's configured discount percentage --
+            // via the shared pricing helper, the ONLY place this
+            // calculation happens. Never hardcode a percentage here.
+            // Marketplace: the LISTING price is the seller's own asking
+            // price, not calculated from a discount at all -- seller is
+            // paid seller_payout_amount only once a buyer purchases it.
             const isMarketplace = sub.saleMode === 'marketplace';
-            const salePrice = isMarketplace
-                ? Number(sub.sellerSetPrice.toFixed(2))
-                : Number((listingFaceValue * DEFAULT_LISTING_PRICE_FACTOR).toFixed(2));
-            const discount = Math.max(0, Math.min(100, Math.round((1 - salePrice / listingFaceValue) * 100)));
-            const commissionRate = isMarketplace ? MARKETPLACE_COMMISSION_RATE * 100 : null;
-            const sellerPayoutAmount = isMarketplace ? Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2)) : null;
+            let salePrice;
+            let discount;
+            let commissionRate;
+            let sellerPayoutAmount;
+
+            if (isMarketplace) {
+                salePrice = Number(sub.sellerSetPrice.toFixed(2));
+                discount = Math.max(0, Math.min(100, Math.round((1 - salePrice / listingFaceValue) * 100)));
+                commissionRate = MARKETPLACE_COMMISSION_RATE * 100;
+                sellerPayoutAmount = Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2));
+            } else {
+                await loadBrandDiscounts();
+                const brandDiscountPercent = AppState.brandDiscounts[sub.brand];
+                const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, brandDiscountPercent);
+                if (!priced.purchasable) {
+                    throw new Error('Cannot approve: this card has a zero or invalid balance and cannot be priced.');
+                }
+                salePrice = priced.salePrice;
+                discount = priced.discountPercent;
+                commissionRate = null;
+                sellerPayoutAmount = null;
+            }
 
             const { data: sellerProfile, error: sellerProfileError } = await supabaseClient
                 .from('profiles')
@@ -2446,8 +2606,7 @@ async function restoreRoute(routeState = {}, historyMode = 'none') {
                 buyerName: AppState.currentUser.name,
                 buyerEmail: AppState.currentUser.email,
                 buyerPhone: '',
-                serviceFee: listing.salePrice * 0.05,
-                total: listing.salePrice * 1.05
+                ...GiftlioPricing.calculateCheckoutTotal(listing.salePrice)
             };
         }
 
