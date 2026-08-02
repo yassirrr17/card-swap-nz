@@ -1,8 +1,11 @@
 {
-  "name": "cardswap-nz",
+  "name": "giftlio",
   "version": "1.0.0",
   "private": true,
-  "description": "CardSwap NZ - vanilla HTML/CSS/JS gift card marketplace with Supabase backend",
+  "description": "Giftlio - vanilla HTML/CSS/JS gift card marketplace with Supabase backend",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "build": "node scripts/generate-env.js"
   },
