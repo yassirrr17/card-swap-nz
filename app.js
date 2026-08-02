@@ -61,7 +61,8 @@ const AppState = {
     activeCategory: null,
     brandDiscounts: {},
     auditLogRows: [],
-    allListings: []
+    allListings: [],
+    listingsCache: null
 };
 
 /**
@@ -184,12 +185,14 @@ function goToBrowse() {
     const input = document.getElementById('searchInput');
     if (input) input.value = '';
     AppState.activeCategory = null;
+    AppState.browsePage = 1;
     router('browse');
 }
 
 async function filterByBrand(brand) {
     const browseSearchInput = document.getElementById('searchInput');
     if (browseSearchInput) browseSearchInput.value = brand;
+    AppState.browsePage = 1;
     await router('browse');
 }
 
@@ -905,7 +908,25 @@ async function logout() {
     }
 }
 
-async function getActiveListings() {
+const LISTINGS_CACHE_TTL_MS = 30000; // 30 seconds
+
+/**
+ * Fetches active listings, with a short-lived cache. Before this, every
+ * keystroke in Browse's search box triggered a fresh database round trip
+ * -- search/sort/filter/pagination are all client-side operations over
+ * the same underlying data, so there's no reason any of them should hit
+ * the network at all. Real fetches now only happen when the cache is
+ * empty, stale (>30s old), or explicitly invalidated (after an admin
+ * action or a purchase that changes what's active).
+ */
+async function getActiveListings(forceRefresh = false) {
+    const cache = AppState.listingsCache;
+    const isFresh = cache && Date.now() - cache.fetchedAt < LISTINGS_CACHE_TTL_MS;
+
+    if (!forceRefresh && isFresh) {
+        return cache.data;
+    }
+
     const { data, error } = await supabaseClient
         .from('listings')
         .select('*')
@@ -920,9 +941,16 @@ async function getActiveListings() {
     // but if one somehow exists -- a direct DB edit, a bug elsewhere -- it
     // must never be purchasable to a buyer. Filtered out here, not just
     // hidden with CSS.
-    return (data || [])
+    const listings = (data || [])
         .map(listingRowToView)
         .filter((l) => l.salePrice > 0 && l.faceValue > 0);
+
+    AppState.listingsCache = { data: listings, fetchedAt: Date.now() };
+    return listings;
+}
+
+function invalidateListingsCache() {
+    AppState.listingsCache = null;
 }
 
 /**
@@ -1201,16 +1229,32 @@ async function applyFilters() {
 
             if (listings.length === 0) {
                 grid.innerHTML = '';
+                document.getElementById('browsePagination').innerHTML = '';
                 empty.classList.remove('hidden');
                 renderBrowseEmptyState(allListings.length === 0);
             } else {
                 empty.classList.add('hidden');
-                grid.innerHTML = listings.map((l) => renderListingCard(l)).join('');
+                const { items: pageListings, page, totalPages } = paginate(listings, AppState.browsePage || 1, 24);
+                AppState.browsePage = page;
+                AppState.browseFilteredFull = listings;
+                grid.innerHTML = pageListings.map((l) => renderListingCard(l)).join('');
+                renderPaginationControls('browsePagination', totalPages, page, 'goToBrowsePage');
             }
         });
     } catch (error) {
         showError(error, 'Unable to load listings.');
     }
+}
+
+function goToBrowsePage(page) {
+    AppState.browsePage = page;
+    // Re-slice from the already-filtered set rather than re-running
+    // filters -- the page number is the only thing that changed.
+    const { items: pageListings, page: safePage, totalPages } = paginate(AppState.browseFilteredFull || [], page, 24);
+    AppState.browsePage = safePage;
+    document.getElementById('browseGrid').innerHTML = pageListings.map((l) => renderListingCard(l)).join('');
+    renderPaginationControls('browsePagination', totalPages, safePage, 'goToBrowsePage');
+    document.getElementById('browseGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderActiveCategoryBanner() {
@@ -1242,6 +1286,7 @@ function clearCategoryFilter() {
  */
 async function filterByCategory(categoryKey) {
     AppState.activeCategory = categoryKey;
+    AppState.browsePage = 1;
     await router('browse');
 }
 
@@ -1276,6 +1321,7 @@ function clearFilters() {
     document.getElementById('discountFilter').value = '';
     document.getElementById('sortSelect').value = 'newest';
     AppState.activeCategory = null;
+    AppState.browsePage = 1;
     applyFilters();
 }
 
@@ -1723,6 +1769,7 @@ function handleStripeRedirectReturn() {
     window.history.replaceState(window.history.state, '', cleanUrl);
 
     if (checkoutResult === 'success') {
+        invalidateListingsCache();
         showToast('success', "Payment received! We're finalising your order now — it will appear in My Orders shortly.");
         router('orders', { historyMode: 'replace' });
     } else if (checkoutResult === 'cancelled') {
@@ -3804,6 +3851,7 @@ async function toggleListingSuspension(listingId, brand, currentlySuspended) {
                         .eq('id', listingId);
                     if (error) throw error;
                 });
+                invalidateListingsCache();
                 await logAdminAction(currentlySuspended ? 'unsuspend_listing' : 'suspend_listing', 'listing', listingId, brand, { reason });
                 showToast('success', currentlySuspended ? 'Listing unsuspended.' : 'Listing suspended.');
                 renderAdmin();
@@ -3831,6 +3879,7 @@ async function removeListing(listingId, brand) {
                         .eq('id', listingId);
                     if (error) throw error;
                 });
+                invalidateListingsCache();
                 await logAdminAction('remove_listing', 'listing', listingId, brand, { reason });
                 showToast('success', 'Listing removed.');
                 renderAdmin();
@@ -4287,6 +4336,8 @@ async function approveSubmission(submissionDbId) {
 
             if (updateError) throw updateError;
         });
+
+        invalidateListingsCache();
 
         await logAdminAction('approve_submission', 'submission', submissionDbId, sub.brand, {
             seller: sub.sellerName,
@@ -4790,10 +4841,16 @@ function handleBottomNavProfile() {
 }
 
 function setupEventListeners() {
+    let searchDebounceTimer = null;
     document.getElementById('searchInput')?.addEventListener('input', () => {
-        applyFilters();
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+            AppState.browsePage = 1; // a new search starts back at page 1
+            applyFilters();
+        }, 300);
     });
     document.getElementById('discountFilter')?.addEventListener('change', () => {
+        AppState.browsePage = 1;
         applyFilters();
     });
     document.getElementById('sortSelect')?.addEventListener('change', () => {
