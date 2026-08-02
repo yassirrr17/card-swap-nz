@@ -2871,7 +2871,7 @@ function renderInstantPendingTable(pending) {
                         <td data-label="Expiry">${s.expiryDate}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Actions">
-                            <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Approve</button>
+                            <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Approve</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
                         </td>
@@ -2916,7 +2916,7 @@ function renderMarketplacePendingTable(pending) {
                         <td data-label="Expiry">${s.expiryDate}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Actions">
-                            <button class="btn btn-primary btn-sm" onclick="approveSubmission('${s.dbId}')">Verify &amp; List</button>
+                            <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Verify &amp; List</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
                         </td>
@@ -3372,6 +3372,28 @@ async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId)
     }
 }
 
+/**
+ * Disables the Approve/Verify & List button THE INSTANT it's clicked --
+ * before any async work even starts -- so a fast double-click (or an
+ * impatient second click while the first request is still in flight)
+ * physically can't fire this twice. This is the actual fix for the
+ * "duplicate key value violates unique constraint" error: without this,
+ * nothing stopped two concurrent approval attempts on the same submission.
+ */
+function approveSubmissionGuarded(button, submissionDbId) {
+    if (button.disabled) return;
+    button.disabled = true;
+    button.style.opacity = '0.6';
+    approveSubmission(submissionDbId).finally(() => {
+        // Only re-enable on failure -- on success the row disappears from
+        // the table on refresh anyway, so there's nothing to re-enable.
+        if (document.body.contains(button)) {
+            button.disabled = false;
+            button.style.opacity = '';
+        }
+    });
+}
+
 async function approveSubmission(submissionDbId) {
     try {
         await withLoading(async () => {
@@ -3382,6 +3404,17 @@ async function approveSubmission(submissionDbId) {
                 .single();
 
             if (subError) throw subError;
+
+            // Idempotency guard: if this submission isn't pending anymore,
+            // someone (or a duplicate click from the same admin) already
+            // processed it. Bail out with a clear message instead of
+            // re-running the whole approval and hitting a raw database
+            // constraint error further down.
+            if (subData.status !== 'pending_review') {
+                showToast('info', 'This submission was already processed -- refreshing the list.');
+                renderAdmin();
+                return;
+            }
 
             const sub = submissionRowToView(subData);
             const listingFaceValue = sub.currentBalance;
