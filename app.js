@@ -541,6 +541,7 @@ function submissionRowToView(row) {
         status: STATUS_MAP.submission[row.status] || row.status,
         statusKey: row.status,
         adminNotes: row.admin_notes || '',
+        paidAt: row.paid_at || null,
         createdAt: row.created_at
     };
 }
@@ -2666,28 +2667,77 @@ async function renderSellerEarnings() {
     }
 }
 
+let adminAutoRefreshTimer = null;
+
+function startAdminAutoRefresh() {
+    stopAdminAutoRefresh();
+    adminAutoRefreshTimer = setInterval(async () => {
+        // Only worth refetching if the admin section is actually the one
+        // on screen -- no point polling in the background when the admin
+        // has navigated to a completely different part of the site.
+        const adminSection = document.getElementById('admin-section');
+        if (!adminSection || adminSection.classList.contains('hidden')) return;
+        if (!AppState.adminData) return;
+
+        try {
+            const [listingsRes, submissionsRes, ordersRes] = await Promise.all([
+                supabaseClient.from('listings').select('*'),
+                supabaseClient.from('submissions').select('*').is('deleted_at', null),
+                supabaseClient.from('orders').select('*')
+            ]);
+            if (listingsRes.error || submissionsRes.error || ordersRes.error) return;
+
+            AppState.adminData.listings = (listingsRes.data || []).map(listingRowToView);
+            AppState.adminData.submissions = (submissionsRes.data || []).map(submissionRowToView);
+            AppState.adminData.orders = (ordersRes.data || []).map(orderRowToView);
+
+            updateAdminNavBadges();
+            if (AppState.currentAdminPage === 'dashboard') {
+                renderDashboardCards();
+                renderRevenueChart();
+                renderStatusChart();
+            }
+        } catch (error) {
+            console.error('Admin auto-refresh failed:', error);
+        }
+    }, 30000);
+}
+
+function stopAdminAutoRefresh() {
+    if (adminAutoRefreshTimer) {
+        clearInterval(adminAutoRefreshTimer);
+        adminAutoRefreshTimer = null;
+    }
+}
+
 async function renderAdmin() {
     if (!AppState.currentUser || AppState.currentUser.role !== 'admin') {
         router('home');
         return;
     }
 
+    // Every action (approve, suspend, etc.) calls renderAdmin() again to
+    // refresh data -- clearing these flags forces whichever page is
+    // currently open to re-render with the fresh data. Pages the admin
+    // hasn't visited yet this session stay lazy (see switchAdminPage).
+    Object.keys(adminPageRenderedOnce).forEach((k) => delete adminPageRenderedOnce[k]);
+
     document.getElementById('adminWelcomeEmpty').classList.add('hidden');
-    document.getElementById('adminStatsView').classList.add('hidden');
-    const adminSkeletonEl = document.getElementById('adminSkeleton');
-    adminSkeletonEl.innerHTML = renderSkeletonStatCards(4);
-    adminSkeletonEl.classList.remove('hidden');
-    document.getElementById('pendingTable').innerHTML = renderSkeletonTableRows(6);
-    document.getElementById('pendingEmpty').classList.add('hidden');
+    document.getElementById('adminPagesWrap').classList.remove('hidden');
+    const adminCardsGrid = document.getElementById('adminCardsGrid');
+    adminCardsGrid.innerHTML = renderSkeletonStatCards(6);
 
     try {
         await withLoading(async () => {
-            const [usersRes, listingsRes, submissionsRes, ordersRes] = await Promise.all([
-                supabaseClient.from('profiles').select('id'),
+            const [usersRes, listingsRes, submissionsRes, ordersRes, , emailQueueRes] = await Promise.all([
+                supabaseClient.from('profiles').select('id, name, email, role, created_at, suspended'),
                 supabaseClient.from('listings').select('*'),
                 supabaseClient.from('submissions').select('*').is('deleted_at', null),
-                supabaseClient.from('orders').select('*')
+                supabaseClient.from('orders').select('*'),
+                loadBrandDiscounts(),
+                supabaseClient.from('email_queue').select('id, status')
             ]);
+            if (!emailQueueRes.error) AppState.emailQueueRows = emailQueueRes.data || [];
 
             if (usersRes.error) throw usersRes.error;
             if (listingsRes.error) throw listingsRes.error;
@@ -2699,131 +2749,161 @@ async function renderAdmin() {
             const submissions = (submissionsRes.data || []).map(submissionRowToView);
             const orders = (ordersRes.data || []).map(orderRowToView);
 
+            // Cached once per admin visit rather than re-fetched on every
+            // sidebar click -- switching pages should feel instant, not
+            // trigger a fresh round trip every time.
+            AppState.adminData = { users, listings, submissions, orders };
+            AppState.allListings = listings;
+
             const welcomeEmpty = document.getElementById('adminWelcomeEmpty');
-            const statsView = document.getElementById('adminStatsView');
-            document.getElementById('adminSkeleton').classList.add('hidden');
+            const pagesWrap = document.getElementById('adminPagesWrap');
             // Truly blank slate: only the admin's own account exists, and
             // nothing has ever been listed, submitted, or sold.
             const isBlankSlate = users.length <= 1 && listings.length === 0 && submissions.length === 0 && orders.length === 0;
 
             if (isBlankSlate) {
                 welcomeEmpty.classList.remove('hidden');
-                statsView.classList.add('hidden');
+                pagesWrap.classList.add('hidden');
                 return;
             }
 
             welcomeEmpty.classList.add('hidden');
-            statsView.classList.remove('hidden');
+            pagesWrap.classList.remove('hidden');
 
-            document.getElementById('adminTotalUsers').textContent = users.length;
-            document.getElementById('adminActiveListings').textContent = listings.filter((l) => l.status === 'active').length;
-            document.getElementById('adminPending').textContent = submissions.filter((s) => s.statusKey === 'pending_review').length;
-            document.getElementById('adminSales').textContent = formatCurrency(orders.reduce((sum, o) => sum + Number(o.total || 0), 0));
-
-            const pending = submissions.filter((s) => s.statusKey === 'pending_review');
-            const instantPending = pending.filter((s) => s.saleMode !== 'marketplace');
-            const marketplacePending = pending.filter((s) => s.saleMode === 'marketplace');
-
-            renderInstantPendingTable(instantPending);
-            renderMarketplacePendingTable(marketplacePending);
-
-            const pendingDelivery = orders.filter((o) => o.statusKey === 'pending_verification');
-            const pendingDeliveryTable = document.getElementById('pendingDeliveryTable');
-            const pendingDeliveryEmpty = document.getElementById('pendingDeliveryEmpty');
-
-            if (pendingDelivery.length === 0) {
-                pendingDeliveryTable.innerHTML = '';
-                pendingDeliveryEmpty.classList.remove('hidden');
-            } else {
-                pendingDeliveryEmpty.classList.add('hidden');
-                pendingDeliveryTable.innerHTML = `
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Order ID</th>
-                                <th>Buyer</th>
-                                <th>Brand</th>
-                                <th>Value</th>
-                                <th>Price Paid</th>
-                                <th>Date</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${pendingDelivery
-                                .map(
-                                    (o) => `
-                                <tr id="order-row-${o.dbId}">
-                                    <td data-label="Order ID">${o.id}</td>
-                                    <td data-label="Buyer">${escapeHtml(o.buyerName)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(o.buyerEmail)}</span></td>
-                                    <td data-label="Brand">${escapeHtml(o.brand)}</td>
-                                    <td data-label="Value">${formatCurrency(o.faceValue)}</td>
-                                    <td data-label="Price Paid">${formatCurrency(o.total)}</td>
-                                    <td data-label="Date">${new Date(o.date).toLocaleDateString('en-NZ')}</td>
-                                    <td data-label="Action">
-                                        <button class="btn btn-primary btn-sm" onclick="deliverOrder('${o.dbId}')">Deliver</button>
-                                    </td>
-                                </tr>
-                            `
-                                )
-                                .join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
-
-            AppState.allListings = listings;
-            renderFilteredListingsTable(listings);
-
-            const { data: fullUsers, error: fullUsersError } = await supabaseClient
-                .from('profiles')
-                .select('id, name, email, role, created_at, suspended')
-                .order('created_at', { ascending: false });
-
-            if (fullUsersError) throw fullUsersError;
-
-            document.getElementById('usersTable').innerHTML = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Joined</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${(fullUsers || [])
-                            .map(
-                                (u) => `
-                            <tr>
-                                <td data-label="Name">${escapeHtml(u.name)}</td>
-                                <td data-label="Email">${escapeHtml(u.email)}</td>
-                                <td data-label="Role"><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
-                                <td data-label="Status">${u.suspended ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>'}</td>
-                                <td data-label="Joined">${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
-                                <td data-label="Actions">${
-                                    u.role === 'admin'
-                                        ? '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
-                                        : `<button class="btn btn-sm ${u.suspended ? 'btn-primary' : 'btn-outline btn-danger-outline'}" onclick="toggleSellerSuspension('${u.id}', '${escapeJsString(u.name)}', ${u.suspended})">${u.suspended ? 'Reinstate' : 'Suspend'}</button>`
-                                }</td>
-                            </tr>
-                        `
-                            )
-                            .join('')}
-                    </tbody>
-                </table>
-            `;
+            updateAdminNavBadges();
+            switchAdminPage(AppState.currentAdminPage || 'dashboard');
+            startAdminAutoRefresh();
         });
-
-        await renderBrandDiscountsTable();
-        await renderAuditLog();
     } catch (error) {
-        document.getElementById('adminSkeleton').classList.add('hidden');
         showError(error, 'Unable to load admin dashboard.');
     }
+}
+
+/**
+ * The admin sub-router. Every sidebar link calls this instead of the
+ * top-level app router() -- this only swaps which .admin-page is visible
+ * within the already-loaded admin shell, using the data already cached in
+ * AppState.adminData from renderAdmin(). Heavy widgets (charts, the brand
+ * table, the audit log, disputes) only render the FIRST time their page is
+ * opened in this session -- true lazy loading, not just hidden divs with
+ * everything pre-rendered underneath.
+ */
+const adminPageRenderedOnce = {};
+
+function switchAdminPage(page) {
+    AppState.currentAdminPage = page;
+    document.querySelectorAll('.admin-page').forEach((el) => el.classList.add('hidden'));
+    document.querySelectorAll('.admin-nav-item').forEach((el) => el.classList.toggle('active', el.dataset.adminPage === page));
+
+    const pageMap = {
+        dashboard: 'adminPageDashboard',
+        submissions: 'adminPageSubmissions',
+        listings: 'adminPageListings',
+        users: 'adminPageUsers',
+        brands: 'adminPageBrands',
+        notifications: 'adminPageNotifications',
+        audit: 'adminPageAudit',
+        disputes: 'adminPageDisputes'
+    };
+    const target = document.getElementById(pageMap[page]);
+    if (!target) return;
+    target.classList.remove('hidden');
+
+    if (window.innerWidth <= 900) closeAdminMobileSidebar();
+
+    if (!AppState.adminData) return;
+    const { listings, submissions, users, orders } = AppState.adminData;
+
+    if (page === 'dashboard') {
+        renderDashboardCards();
+        renderRevenueChart();
+        renderStatusChart();
+    } else if (page === 'submissions' && !adminPageRenderedOnce.submissions) {
+        const pending = submissions.filter((s) => s.statusKey === 'pending_review');
+        renderInstantPendingTable(pending.filter((s) => s.saleMode !== 'marketplace'));
+        renderMarketplacePendingTable(pending.filter((s) => s.saleMode === 'marketplace'));
+        renderPendingDeliveryTable(orders.filter((o) => o.statusKey === 'pending_verification'));
+        adminPageRenderedOnce.submissions = true;
+    } else if (page === 'listings' && !adminPageRenderedOnce.listings) {
+        renderFilteredListingsTable(listings);
+        adminPageRenderedOnce.listings = true;
+    } else if (page === 'users' && !adminPageRenderedOnce.users) {
+        renderUsersTable();
+        adminPageRenderedOnce.users = true;
+    } else if (page === 'brands' && !adminPageRenderedOnce.brands) {
+        renderBrandDiscountsTable();
+        adminPageRenderedOnce.brands = true;
+    } else if (page === 'notifications' && !adminPageRenderedOnce.notifications) {
+        renderEmailQueueTable();
+        adminPageRenderedOnce.notifications = true;
+    } else if (page === 'audit' && !adminPageRenderedOnce.audit) {
+        renderAuditLog();
+        adminPageRenderedOnce.audit = true;
+    } else if (page === 'disputes' && !adminPageRenderedOnce.disputes) {
+        renderDisputesTable();
+        adminPageRenderedOnce.disputes = true;
+    }
+}
+
+function toggleAdminSidebar() {
+    document.getElementById('adminSidebar').classList.toggle('mobile-open');
+    document.getElementById('adminSidebarOverlay').classList.toggle('hidden');
+}
+
+function closeAdminMobileSidebar() {
+    document.getElementById('adminSidebar').classList.remove('mobile-open');
+    document.getElementById('adminSidebarOverlay').classList.add('hidden');
+}
+
+function toggleAdminSidebarCollapse() {
+    document.getElementById('adminSidebar').classList.toggle('collapsed');
+}
+
+function updateAdminNavBadges() {
+    if (!AppState.adminData) return;
+    const pendingCount = AppState.adminData.submissions.filter((s) => s.statusKey === 'pending_review').length;
+    const subBadge = document.getElementById('navBadgeSubmissions');
+    subBadge.textContent = pendingCount;
+    subBadge.classList.toggle('hidden', pendingCount === 0);
+    // Disputes badge wired up once real dispute data is fetched -- see
+    // renderDisputesTable(), which updates this same element.
+}
+
+/**
+ * Generic pagination: given a full array, the requested page, and a page
+ * size, returns just the slice for that page plus the total page count.
+ * Every admin table uses this same helper -- client-side pagination, since
+ * the current data volume doesn't yet justify server-side paging, but
+ * every table is built so switching to a server-paginated query later only
+ * touches the fetch, not the rendering or controls.
+ */
+function paginate(array, page, pageSize = 25) {
+    const totalPages = Math.max(1, Math.ceil(array.length / pageSize));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const start = (safePage - 1) * pageSize;
+    return { items: array.slice(start, start + pageSize), page: safePage, totalPages, totalItems: array.length };
+}
+
+function renderPaginationControls(containerId, totalPages, currentPage, onPageChangeFnName) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (totalPages <= 1) {
+        el.innerHTML = '';
+        return;
+    }
+    const pages = [];
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+
+    el.innerHTML = `
+        <button class="page-btn" ${currentPage <= 1 ? 'disabled' : ''} onclick="${onPageChangeFnName}(${currentPage - 1})">Prev</button>
+        ${pages
+            .map(
+                (p) =>
+                    `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="${onPageChangeFnName}(${p})">${p}</button>`
+            )
+            .join('')}
+        <button class="page-btn" ${currentPage >= totalPages ? 'disabled' : ''} onclick="${onPageChangeFnName}(${currentPage + 1})">Next</button>
+    `;
 }
 
 /**
@@ -2840,16 +2920,212 @@ function switchPendingTab(tab) {
 }
 
 /** Instant Sell queue: shows the calculated offer, needs only approve/reject. */
-function renderInstantPendingTable(pending) {
+function renderPendingDeliveryTable(pendingDelivery) {
+    const pendingDeliveryTable = document.getElementById('pendingDeliveryTable');
+    const pendingDeliveryEmpty = document.getElementById('pendingDeliveryEmpty');
+
+    if (pendingDelivery.length === 0) {
+        pendingDeliveryTable.innerHTML = '';
+        pendingDeliveryEmpty.classList.remove('hidden');
+        return;
+    }
+    pendingDeliveryEmpty.classList.add('hidden');
+    pendingDeliveryTable.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Order ID</th>
+                    <th>Buyer</th>
+                    <th>Brand</th>
+                    <th>Value</th>
+                    <th>Price Paid</th>
+                    <th>Date</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${pendingDelivery
+                    .map(
+                        (o) => `
+                    <tr id="order-row-${o.dbId}">
+                        <td data-label="Order ID">${o.id}</td>
+                        <td data-label="Buyer">${escapeHtml(o.buyerName)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(o.buyerEmail)}</span></td>
+                        <td data-label="Brand">${escapeHtml(o.brand)}</td>
+                        <td data-label="Value">${formatCurrency(o.faceValue)}</td>
+                        <td data-label="Price Paid">${formatCurrency(o.total)}</td>
+                        <td data-label="Date">${new Date(o.date).toLocaleDateString('en-NZ')}</td>
+                        <td data-label="Action">
+                            <button class="btn btn-primary btn-sm" onclick="deliverOrder('${o.dbId}')">Deliver</button>
+                        </td>
+                    </tr>
+                `
+                    )
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+/**
+ * Dashboard summary cards -- six metrics, each clickable and navigating to
+ * the relevant detailed page. Called on dashboard load and again on a
+ * 30-second interval (see startAdminAutoRefresh) while the dashboard page
+ * is the one visible.
+ */
+function renderDashboardCards() {
+    if (!AppState.adminData) return;
+    const { users, listings, submissions, orders } = AppState.adminData;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const revenueToday = orders.filter((o) => new Date(o.date) >= today).reduce((sum, o) => sum + Number(o.total || 0), 0);
+
+    const pendingCount = submissions.filter((s) => s.statusKey === 'pending_review').length;
+    const activeListingsCount = listings.filter((l) => l.status === 'active' && !l.suspended).length;
+
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const newUsersThisWeek = users.filter((u) => new Date(u.created_at) >= weekAgo).length;
+
+    const brandPercents = Object.values(AppState.brandDiscounts || {}).map((c) => c.discountPercent);
+    const avgDiscount = brandPercents.length ? brandPercents.reduce((a, b) => a + b, 0) / brandPercents.length : 0;
+
+    const emailStatuses = AppState.emailQueueRows || [];
+    const failedEmails = emailStatuses.filter((e) => e.status === 'failed').length;
+
+    const cards = [
+        { label: 'Revenue Today', value: formatCurrency(revenueToday), page: 'listings' },
+        { label: 'Pending Submissions', value: pendingCount, page: 'submissions', highlight: pendingCount > 0 },
+        { label: 'Active Listings', value: activeListingsCount, page: 'listings' },
+        { label: 'New Users This Week', value: newUsersThisWeek, page: 'users' },
+        { label: 'Avg. Discount Across Brands', value: `${avgDiscount.toFixed(1)}%`, page: 'brands' },
+        { label: 'Email Queue', value: failedEmails > 0 ? `${failedEmails} failed` : 'All sent', page: 'notifications', highlight: failedEmails > 0 }
+    ];
+
+    document.getElementById('adminCardsGrid').innerHTML = cards
+        .map(
+            (c) => `
+        <button class="dashboard-card ${c.highlight ? 'dashboard-card-highlight' : ''}" onclick="switchAdminPage('${c.page}')">
+            <span class="dashboard-card-label">${c.label}</span>
+            <span class="dashboard-card-value">${c.value}</span>
+        </button>
+    `
+        )
+        .join('');
+}
+
+/**
+ * Revenue-over-time chart, built as plain inline HTML/CSS bars -- no chart
+ * library, no bundle bloat. Buckets real orders by day across the
+ * selected range.
+ */
+function renderRevenueChart() {
+    if (!AppState.adminData) return;
+    const range = AppState.revenueRange || 30;
+    const { orders } = AppState.adminData;
+
+    const days = [];
+    for (let i = range - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        d.setHours(0, 0, 0, 0);
+        days.push(d);
+    }
+
+    const totals = days.map((day) => {
+        const nextDay = new Date(day);
+        nextDay.setDate(nextDay.getDate() + 1);
+        return orders.filter((o) => new Date(o.date) >= day && new Date(o.date) < nextDay).reduce((sum, o) => sum + Number(o.total || 0), 0);
+    });
+
+    const container = document.getElementById('revenueChart');
+    const max = Math.max(...totals, 1);
+
+    if (totals.every((t) => t === 0)) {
+        container.innerHTML = '<p class="chart-empty">No revenue yet in this range.</p>';
+        return;
+    }
+
+    const width = 100 / totals.length;
+    const bars = totals
+        .map((t, i) => {
+            const heightPct = (t / max) * 100;
+            return `<div class="chart-bar-wrap" style="width:${width}%" title="${days[i].toLocaleDateString('en-NZ')}: ${formatCurrency(t)}"><div class="chart-bar" style="height:${Math.max(heightPct, t > 0 ? 3 : 0)}%"></div></div>`;
+        })
+        .join('');
+
+    container.innerHTML = `<div class="chart-bars">${bars}</div><div class="chart-axis-labels"><span>${days[0].toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span><span>${days[days.length - 1].toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span></div>`;
+}
+
+function setRevenueRange(range) {
+    AppState.revenueRange = range;
+    document.querySelectorAll('.chart-range-btn').forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.range) === range));
+    renderRevenueChart();
+}
+
+/**
+ * Submissions-by-status chart -- simple horizontal bars, matching the
+ * Giftlio palette exactly (navy/gold/red/gray, no new colors introduced).
+ */
+function renderStatusChart() {
+    if (!AppState.adminData) return;
+    const { submissions } = AppState.adminData;
+
+    const counts = {
+        Pending: submissions.filter((s) => s.statusKey === 'pending_review').length,
+        Approved: submissions.filter((s) => s.statusKey === 'approved').length,
+        Rejected: submissions.filter((s) => s.statusKey === 'rejected').length,
+        Paid: submissions.filter((s) => s.paidAt).length
+    };
+    const colorMap = { Pending: 'var(--gold)', Approved: 'var(--navy)', Rejected: 'var(--red)', Paid: 'var(--gray-500)' };
+    const max = Math.max(...Object.values(counts), 1);
+
+    document.getElementById('statusChart').innerHTML = Object.entries(counts)
+        .map(
+            ([label, count]) => `
+        <div class="status-bar-row">
+            <span class="status-bar-label">${label}</span>
+            <div class="status-bar-track"><div class="status-bar-fill" style="width:${(count / max) * 100}%; background:${colorMap[label]};"></div></div>
+            <span class="status-bar-count">${count}</span>
+        </div>
+    `
+        )
+        .join('');
+}
+
+function renderInstantPendingTable(freshData) {
+    if (freshData) AppState.instantPendingRaw = freshData;
+    const all = AppState.instantPendingRaw || [];
+
+    const search = (document.getElementById('instantSearchInput')?.value || '').toLowerCase().trim();
+    const sort = document.getElementById('instantSortSelect')?.value || 'date_desc';
+
+    let filtered = search
+        ? all.filter((s) => s.brand.toLowerCase().includes(search) || s.sellerName.toLowerCase().includes(search) || String(s.faceValue).includes(search) || String(s.currentBalance).includes(search))
+        : all.slice();
+
+    const sorters = {
+        date_desc: (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+        date_asc: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+        amount_desc: (a, b) => b.offerAmount - a.offerAmount,
+        amount_asc: (a, b) => a.offerAmount - b.offerAmount
+    };
+    filtered.sort(sorters[sort]);
+
     const pendingTable = document.getElementById('pendingTable');
     const pendingEmpty = document.getElementById('pendingEmpty');
 
-    if (pending.length === 0) {
+    if (filtered.length === 0) {
         pendingTable.innerHTML = '';
+        document.getElementById('pendingPagination').innerHTML = '';
         pendingEmpty.classList.remove('hidden');
         return;
     }
     pendingEmpty.classList.add('hidden');
+
+    const { items: pending, page, totalPages } = paginate(filtered, AppState.instantPendingPage || 1);
+    AppState.instantPendingPage = page;
+
     pendingTable.innerHTML = `
         <table>
             <thead>
@@ -2882,20 +3158,49 @@ function renderInstantPendingTable(pending) {
             </tbody>
         </table>
     `;
+    renderPaginationControls('pendingPagination', totalPages, page, 'goToInstantPendingPage');
+}
+
+function goToInstantPendingPage(page) {
+    AppState.instantPendingPage = page;
+    renderInstantPendingTable();
 }
 
 /** Marketplace queue: shows the seller's own chosen price, admin only needs
     to verify the balance is correct before letting the listing go live. */
-function renderMarketplacePendingTable(pending) {
+function renderMarketplacePendingTable(freshData) {
+    if (freshData) AppState.marketplacePendingRaw = freshData;
+    const all = AppState.marketplacePendingRaw || [];
+
+    const search = (document.getElementById('marketplaceSearchInput')?.value || '').toLowerCase().trim();
+    const sort = document.getElementById('marketplaceSortSelect')?.value || 'date_desc';
+
+    let filtered = search
+        ? all.filter((s) => s.brand.toLowerCase().includes(search) || s.sellerName.toLowerCase().includes(search) || String(s.currentBalance).includes(search) || String(s.sellerSetPrice).includes(search))
+        : all.slice();
+
+    const sorters = {
+        date_desc: (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+        date_asc: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
+        amount_desc: (a, b) => (b.sellerSetPrice || 0) - (a.sellerSetPrice || 0),
+        amount_asc: (a, b) => (a.sellerSetPrice || 0) - (b.sellerSetPrice || 0)
+    };
+    filtered.sort(sorters[sort]);
+
     const table = document.getElementById('marketplacePendingTable');
     const empty = document.getElementById('marketplacePendingEmpty');
 
-    if (pending.length === 0) {
+    if (filtered.length === 0) {
         table.innerHTML = '';
+        document.getElementById('marketplacePagination').innerHTML = '';
         empty.classList.remove('hidden');
         return;
     }
     empty.classList.add('hidden');
+
+    const { items: pending, page, totalPages } = paginate(filtered, AppState.marketplacePendingPage || 1);
+    AppState.marketplacePendingPage = page;
+
     table.innerHTML = `
         <table>
             <thead>
@@ -2927,6 +3232,262 @@ function renderMarketplacePendingTable(pending) {
             </tbody>
         </table>
     `;
+    renderPaginationControls('marketplacePagination', totalPages, page, 'goToMarketplacePendingPage');
+}
+
+function goToMarketplacePendingPage(page) {
+    AppState.marketplacePendingPage = page;
+    renderMarketplacePendingTable();
+}
+
+/**
+ * Disputes page -- the schema for this (disputes + dispute_messages) was
+ * built earlier but never had a UI. This is that UI: every dispute, its
+ * status, and basic resolve/refund actions. Also updates the sidebar
+ * badge for open disputes.
+ */
+async function renderDisputesTable() {
+    const table = document.getElementById('disputesTable');
+    const empty = document.getElementById('disputesEmpty');
+    table.innerHTML = renderSkeletonTableRows(5, 3);
+    empty.classList.add('hidden');
+
+    try {
+        const { data, error } = await supabaseClient.from('disputes').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+
+        const disputes = data || [];
+        const openCount = disputes.filter((d) => ['open', 'investigating'].includes(d.status)).length;
+        const badge = document.getElementById('navBadgeDisputes');
+        badge.textContent = openCount;
+        badge.classList.toggle('hidden', openCount === 0);
+
+        if (disputes.length === 0) {
+            table.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        const badgeMap = { open: 'badge-yellow', investigating: 'badge-blue', resolved: 'badge-green', refunded: 'badge-green', closed: 'badge-gray' };
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>ID</th><th>Message</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+                <tbody>
+                    ${disputes
+                        .map(
+                            (d) => `
+                        <tr>
+                            <td data-label="ID">${escapeHtml(d.public_id)}</td>
+                            <td data-label="Message">${escapeHtml((d.buyer_message || '').slice(0, 80))}${(d.buyer_message || '').length > 80 ? '…' : ''}</td>
+                            <td data-label="Status"><span class="badge ${badgeMap[d.status] || 'badge-gray'}">${d.status}</span></td>
+                            <td data-label="Date">${new Date(d.created_at).toLocaleDateString('en-NZ')}</td>
+                            <td data-label="Actions">
+                                ${
+                                    ['open', 'investigating'].includes(d.status)
+                                        ? `<button class="btn btn-primary btn-sm" onclick="resolveDispute('${d.id}', 'resolved')">Resolve</button>
+                                           <button class="btn btn-outline btn-sm" onclick="resolveDispute('${d.id}', 'closed')">Close</button>`
+                                        : '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
+                                }
+                            </td>
+                        </tr>
+                    `
+                        )
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load disputes.');
+    }
+}
+
+async function resolveDispute(disputeId, newStatus) {
+    showConfirmModal({
+        title: newStatus === 'resolved' ? 'Resolve Dispute' : 'Close Dispute',
+        message: `Mark this dispute as ${newStatus}?`,
+        confirmLabel: newStatus === 'resolved' ? 'Mark Resolved' : 'Close Dispute',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient.from('disputes').update({ status: newStatus, resolved_at: new Date().toISOString() }).eq('id', disputeId);
+                    if (error) throw error;
+                });
+                await logAdminAction(`dispute_${newStatus}`, 'dispute', disputeId, null, {});
+                showToast('success', `Dispute marked ${newStatus}.`);
+                renderDisputesTable();
+            } catch (error) {
+                showError(error, 'Unable to update this dispute.');
+            }
+        }
+    });
+}
+
+/**
+ * Users table -- search by name/email, sort by join date or name,
+ * paginated. Uses the users list already cached in AppState.adminData
+ * from renderAdmin(), no extra fetch needed.
+ */
+function renderUsersTable() {
+    if (!AppState.adminData) return;
+    const all = AppState.adminData.users;
+
+    const search = (document.getElementById('usersSearchInput')?.value || '').toLowerCase().trim();
+    const sort = document.getElementById('usersSortSelect')?.value || 'date_desc';
+
+    let filtered = search ? all.filter((u) => u.name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search)) : all.slice();
+
+    const sorters = {
+        date_desc: (a, b) => new Date(b.created_at) - new Date(a.created_at),
+        date_asc: (a, b) => new Date(a.created_at) - new Date(b.created_at),
+        name_asc: (a, b) => a.name.localeCompare(b.name)
+    };
+    filtered.sort(sorters[sort]);
+
+    const { items: users, page, totalPages } = paginate(filtered, AppState.usersPage || 1);
+    AppState.usersPage = page;
+
+    document.getElementById('usersTable').innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${users
+                    .map(
+                        (u) => `
+                    <tr>
+                        <td data-label="Name">${escapeHtml(u.name)}</td>
+                        <td data-label="Email">${escapeHtml(u.email)}</td>
+                        <td data-label="Role"><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
+                        <td data-label="Status">${u.suspended ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>'}</td>
+                        <td data-label="Joined">${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
+                        <td data-label="Actions">${
+                            u.role === 'admin'
+                                ? '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
+                                : `<button class="btn btn-sm ${u.suspended ? 'btn-primary' : 'btn-outline btn-danger-outline'}" onclick="toggleSellerSuspension('${u.id}', '${escapeJsString(u.name)}', ${u.suspended})">${u.suspended ? 'Reinstate' : 'Suspend'}</button>
+                                   <button class="btn btn-outline btn-sm" onclick="viewSellerHistory('${u.id}', '${escapeJsString(u.name)}')">History</button>`
+                        }</td>
+                    </tr>
+                `
+                    )
+                    .join('')}
+            </tbody>
+        </table>
+    `;
+    renderPaginationControls('usersPagination', totalPages, page, 'goToUsersPage');
+}
+
+function goToUsersPage(page) {
+    AppState.usersPage = page;
+    renderUsersTable();
+}
+
+/**
+ * Email Notifications page -- every row from email_queue, filterable by
+ * status, with a retry button on individual failed rows plus a
+ * retry-all-failed action.
+ */
+async function renderEmailQueueTable() {
+    const table = document.getElementById('emailQueueTable');
+    table.innerHTML = renderSkeletonTableRows(5, 6);
+
+    try {
+        const { data, error } = await supabaseClient.from('email_queue').select('*').order('created_at', { ascending: false }).limit(500);
+        if (error) throw error;
+
+        AppState.emailQueueRows = data || [];
+        renderDashboardCards(); // failed-email count on the dashboard card depends on this
+
+        const statusFilter = document.getElementById('emailFilterStatus')?.value || '';
+        const filtered = statusFilter ? AppState.emailQueueRows.filter((e) => e.status === statusFilter) : AppState.emailQueueRows;
+
+        if (filtered.length === 0) {
+            table.innerHTML = '<p class="section-subtitle" style="padding: 16px 0;">No emails match this filter.</p>';
+            document.getElementById('emailQueuePagination').innerHTML = '';
+            return;
+        }
+
+        const { items: rows, page, totalPages } = paginate(filtered, AppState.emailQueuePage || 1);
+        AppState.emailQueuePage = page;
+
+        const badgeMap = { sent: 'badge-green', failed: 'badge-red', pending: 'badge-yellow' };
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>To</th><th>Subject</th><th>Event</th><th>Status</th><th>Attempts</th><th>Date</th><th>Actions</th></tr></thead>
+                <tbody>
+                    ${rows
+                        .map(
+                            (e) => `
+                        <tr>
+                            <td data-label="To">${escapeHtml(e.to_email)}</td>
+                            <td data-label="Subject">${escapeHtml(e.subject)}</td>
+                            <td data-label="Event">${escapeHtml((e.event_type || '').replace(/_/g, ' '))}</td>
+                            <td data-label="Status"><span class="badge ${badgeMap[e.status] || 'badge-gray'}" title="${e.last_error ? escapeHtml(e.last_error) : ''}">${e.status}</span></td>
+                            <td data-label="Attempts">${e.attempts}</td>
+                            <td data-label="Date">${new Date(e.created_at).toLocaleString('en-NZ')}</td>
+                            <td data-label="Actions">${
+                                e.status === 'failed' ? `<button class="btn btn-outline btn-sm" onclick="retryOneEmail('${e.id}')">Retry</button>` : '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
+                            }</td>
+                        </tr>
+                    `
+                        )
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+        renderPaginationControls('emailQueuePagination', totalPages, page, 'goToEmailQueuePage');
+    } catch (error) {
+        showError(error, 'Unable to load email queue.');
+    }
+}
+
+function goToEmailQueuePage(page) {
+    AppState.emailQueuePage = page;
+    renderEmailQueueTable();
+}
+
+async function retryOneEmail(emailId) {
+    try {
+        await withLoading(async () => {
+            const result = await fetch('/api/retry-failed-emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emailId })
+            });
+            const data = await result.json();
+            if (!result.ok) throw new Error(data.error || 'Retry failed.');
+            showToast(
+                data.retried > 0 ? 'success' : 'warning',
+                data.retried > 0 ? 'Email resent successfully.' : 'Retry attempted, but it failed again -- the underlying issue likely needs fixing (check the error shown on hover).'
+            );
+        });
+        await renderEmailQueueTable();
+    } catch (error) {
+        showError(error, 'Unable to retry this email.');
+    }
+}
+
+async function retryAllFailedEmails() {
+    try {
+        await withLoading(async () => {
+            const result = await fetch('/api/retry-failed-emails', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            const data = await result.json();
+            if (!result.ok) throw new Error(data.error || 'Retry failed.');
+            showToast('info', `Retried ${data.total} email(s): ${data.retried} sent, ${data.stillFailed} still failed.`);
+        });
+        await renderEmailQueueTable();
+    } catch (error) {
+        showError(error, 'Unable to retry failed emails.');
+    }
 }
 
 function renderFilteredListingsTable(listings) {
@@ -2935,8 +3496,14 @@ function renderFilteredListingsTable(listings) {
 
     if (listings.length === 0) {
         container.innerHTML = '<p class="section-subtitle" style="padding: 16px 0;">No listings match these filters.</p>';
+        document.getElementById('listingsPagination').innerHTML = '';
         return;
     }
+
+    AppState.listingsFilteredFull = listings;
+    const { items: pageListings, page, totalPages } = paginate(listings, AppState.listingsPage || 1);
+    AppState.listingsPage = page;
+    listings = pageListings;
 
     container.innerHTML = `
         <table>
@@ -2987,6 +3554,12 @@ function renderFilteredListingsTable(listings) {
             </tbody>
         </table>
     `;
+    renderPaginationControls('listingsPagination', totalPages, page, 'goToListingsPage');
+}
+
+function goToListingsPage(page) {
+    AppState.listingsPage = page;
+    renderFilteredListingsTable(AppState.listingsFilteredFull || []);
 }
 
 function applyListingsFilters() {
@@ -3972,6 +4545,10 @@ async function router(page, options = {}) {
         if (AppState.currentUser.role !== 'admin') {
             return router('home', { historyMode: 'replace' });
         }
+    } else {
+        // Leaving admin (or never having been there) -- no reason to keep
+        // polling every 30 seconds for a page that isn't visible anymore.
+        stopAdminAutoRefresh();
     }
 
     document.querySelectorAll('.page-section').forEach((s) => {
