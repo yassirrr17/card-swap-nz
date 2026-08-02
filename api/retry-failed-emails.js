@@ -1,10 +1,12 @@
 const { createClient } = require('@supabase/supabase-js');
 
 /**
- * Retries every 'failed' row in email_queue (up to 5 attempts each).
- * Triggered manually via a button in the admin panel. A scheduled Vercel
- * Cron job could call this automatically -- not wired up yet, this is the
- * manual version.
+ * Retries failed email_queue rows (up to 5 attempts each). If req.body
+ * contains emailId, only that one row is retried -- used by the per-row
+ * "Retry" button in the admin panel. With no emailId, every failed row
+ * is retried -- used by "Retry All Failed". A scheduled Vercel Cron job
+ * could call this automatically -- not wired up yet, this is the manual
+ * version.
  */
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -22,12 +24,12 @@ module.exports = async function handler(req, res) {
     }
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const { emailId } = req.body || {};
 
-    const { data: failedRows, error: fetchError } = await supabaseAdmin
-        .from('email_queue')
-        .select('*')
-        .eq('status', 'failed')
-        .lt('attempts', 5);
+    let query = supabaseAdmin.from('email_queue').select('*').eq('status', 'failed').lt('attempts', 5);
+    query = emailId ? query.eq('id', emailId) : query;
+
+    const { data: failedRows, error: fetchError } = await query;
 
     if (fetchError) {
         return res.status(500).json({ error: 'Unable to fetch failed emails.' });
