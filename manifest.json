@@ -2,7 +2,7 @@
   "name": "Giftlio | New Zealand's Gift Card Marketplace",
   "short_name": "Giftlio",
   "description": "New Zealand's gift card marketplace. Buy verified gift cards at a discount, or sell your unused cards for cash.",
-  "start_url": "/#home",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -40,7 +40,7 @@
       "name": "Browse Cards",
       "short_name": "Browse",
       "description": "Browse discounted gift cards",
-      "url": "/#browse",
+      "url": "/browse",
       "icons": [
         {
           "src": "icons/icon-192.png",
@@ -52,7 +52,7 @@
       "name": "Sell a Card",
       "short_name": "Sell",
       "description": "Sell your gift card",
-      "url": "/#sell",
+      "url": "/sell",
       "icons": [
         {
           "src": "icons/icon-192.png",
