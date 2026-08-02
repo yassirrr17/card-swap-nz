@@ -3,11 +3,14 @@
  *
  * Vercel does not inject dashboard Environment Variables into static
  * client-side files automatically -- it only exposes them to the build
- * process (this script) and to serverless functions. Since this project
- * has no serverless functions and no bundler, we bridge the gap by
- * writing the values to a plain JS file (env-config.js) during the
- * build step. That file is loaded by index.html before supabase-client.js,
- * which reads window.SUPABASE_URL / window.SUPABASE_ANON_KEY.
+ * process (this script) and to serverless functions (the api/ folder
+ * reads its own env vars directly via process.env, no build step needed
+ * for those). This script exists specifically to bridge the gap for the
+ * CLIENT-side Supabase config, since there's no bundler here to inject
+ * env vars into browser JS -- it writes the values to a plain JS file
+ * (env-config.js) during the build step. That file is loaded by
+ * index.html before supabase-client.js, which reads
+ * window.SUPABASE_URL / window.SUPABASE_ANON_KEY.
  */
 const fs = require('fs');
 const path = require('path');
