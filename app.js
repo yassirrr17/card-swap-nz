@@ -536,6 +536,7 @@ function submissionRowToView(row) {
         cardNumber: row.card_number,
         pin: row.pin,
         receiptFilename: row.receipt_filename || '',
+        receiptStoragePath: row.receipt_storage_path || null,
         offerAmount: Number(row.offer_amount),
         saleMode: row.sale_mode || 'instant',
         sellerSetPrice: row.seller_set_price !== null && row.seller_set_price !== undefined ? Number(row.seller_set_price) : null,
@@ -2210,6 +2211,31 @@ async function handleSubmission() {
 
     const submissionPublicId = generatePublicId('SUB');
 
+    // Actually upload the receipt to Storage, if one was selected. This
+    // replaces the old behavior of just storing the typed/selected
+    // filename as text with nothing behind it -- the file itself now goes
+    // to the private receipts bucket under the seller's own folder, and we
+    // keep the returned storage path so it can be viewed later (via a
+    // signed URL, since the bucket isn't public).
+    let receiptStoragePath = null;
+    const receiptFile = document.getElementById('subReceipt').files[0];
+    if (receiptFile) {
+        try {
+            const safeName = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `${AppState.currentUser.id}/${Date.now()}-${safeName}`;
+            const { error: uploadError } = await supabaseClient.storage.from('receipts').upload(path, receiptFile, {
+                contentType: receiptFile.type,
+                upsert: false
+            });
+
+            if (uploadError) throw uploadError;
+            receiptStoragePath = path;
+        } catch (uploadError) {
+            console.error('Receipt upload failed:', uploadError);
+            showToast('warning', 'Your receipt could not be uploaded, but the rest of your submission will still go through. You can email it to support@giftlio.co.nz if needed.');
+        }
+    }
+
     try {
         await withLoading(async () => {
             const { error } = await supabaseClient.from('submissions').insert({
@@ -2223,6 +2249,7 @@ async function handleSubmission() {
                 card_number: cardNum,
                 pin: pin || null,
                 receipt_filename: document.getElementById('fileName').textContent || null,
+                receipt_storage_path: receiptStoragePath,
                 offer_amount: offerAmount,
                 sale_mode: saleMode,
                 seller_set_price: sellerSetPrice,
@@ -3142,6 +3169,22 @@ function renderStatusChart() {
         .join('');
 }
 
+/**
+ * Opens a submission's uploaded receipt in a new tab. The bucket is
+ * private (not public), so this generates a short-lived signed URL rather
+ * than a permanent public link -- the URL expires, the file doesn't
+ * become permanently publicly accessible.
+ */
+async function viewReceipt(storagePath) {
+    try {
+        const { data, error } = await supabaseClient.storage.from('receipts').createSignedUrl(storagePath, 300);
+        if (error) throw error;
+        window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+        showError(error, 'Unable to load this receipt.');
+    }
+}
+
 function renderInstantPendingTable(freshData) {
     if (freshData) AppState.instantPendingRaw = freshData;
     const all = AppState.instantPendingRaw || [];
@@ -3199,6 +3242,7 @@ function renderInstantPendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Approve</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                            ${s.receiptStoragePath ? `<button class="btn btn-outline btn-sm" onclick="viewReceipt('${escapeJsString(s.receiptStoragePath)}')">View Receipt</button>` : ''}
                         </td>
                     </tr>
                 `
@@ -3273,6 +3317,7 @@ function renderMarketplacePendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Verify &amp; List</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                            ${s.receiptStoragePath ? `<button class="btn btn-outline btn-sm" onclick="viewReceipt('${escapeJsString(s.receiptStoragePath)}')">View Receipt</button>` : ''}
                         </td>
                     </tr>
                 `
@@ -4757,9 +4802,32 @@ function setupEventListeners() {
 
     document.getElementById('subReceipt')?.addEventListener('change', function () {
         const file = this.files[0];
-        if (file) {
-            document.getElementById('fileName').textContent = file.name;
+        const fileNameEl = document.getElementById('fileName');
+        const errorEl = document.getElementById('subReceiptError');
+        if (errorEl) errorEl.textContent = '';
+
+        if (!file) {
+            fileNameEl.textContent = '';
+            return;
         }
+
+        const maxSizeBytes = 5 * 1024 * 1024;
+        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+
+        if (file.size > maxSizeBytes) {
+            fileNameEl.textContent = '';
+            this.value = '';
+            if (errorEl) errorEl.textContent = `File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`;
+            return;
+        }
+        if (!allowedTypes.includes(file.type)) {
+            fileNameEl.textContent = '';
+            this.value = '';
+            if (errorEl) errorEl.textContent = 'Only JPG, PNG, or PDF files are accepted.';
+            return;
+        }
+
+        fileNameEl.textContent = file.name;
     });
 
     document.addEventListener('click', (e) => {
