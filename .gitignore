@@ -1,0 +1,17 @@
+# Auto-generated at build time by scripts/generate-env.js -- contains
+# environment-specific Supabase config and should not be committed.
+env-config.js
+
+# Defensive: this project doesn't use standard .env files (see
+# scripts/generate-env.js for how env vars actually reach the client),
+# but excluding these anyway in case one ever gets created locally out of
+# habit -- a real secret in a committed .env file is a much worse mistake
+# than an unnecessary gitignore line.
+.env
+.env.local
+.env*.local
+
+node_modules/
+.vercel/
+.DS_Store
+*.log
