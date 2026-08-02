@@ -1,6 +1,7 @@
 const DEFAULT_CHECKOUT_STEP = 1;
 const MAX_CHECKOUT_STEP = 4;
 const MARKETPLACE_COMMISSION_RATE = 0.10;
+const SELLER_VERIFICATION_VALUE_THRESHOLD = 200;
 
 const TOAST_ICONS = {
     success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
@@ -569,7 +570,7 @@ function orderRowToView(row) {
 async function fetchProfile(userId) {
     const { data, error } = await supabaseClient
         .from('profiles')
-        .select('id, name, email, role, created_at, suspended, suspended_reason')
+        .select('id, name, email, role, created_at, suspended, suspended_reason, verification_status')
         .eq('id', userId)
         .single();
 
@@ -582,7 +583,8 @@ async function fetchProfile(userId) {
         role: data.role,
         created: data.created_at?.split('T')[0],
         suspended: Boolean(data.suspended),
-        suspendedReason: data.suspended_reason || null
+        suspendedReason: data.suspended_reason || null,
+        verificationStatus: data.verification_status || 'unverified'
     };
 }
 
@@ -2251,7 +2253,30 @@ async function handleSubmission() {
              <p>We've received your ${escapeHtml(brand)} gift card submission (#${escapeHtml(submissionPublicId)}) and it's now being manually verified. We'll email you as soon as it's reviewed.</p>`
         });
 
+        // Seller verification queue: a new/unverified seller submitting a
+        // high-value card gets flagged for admin review before it's business
+        // as usual -- doesn't block THIS submission from going through, just
+        // marks the account for a human to look at.
+        let justFlagged = false;
+        if (value > SELLER_VERIFICATION_VALUE_THRESHOLD && AppState.currentUser.verificationStatus === 'unverified') {
+            const { error: flagError } = await supabaseClient.from('profiles').update({ verification_status: 'flagged' }).eq('id', AppState.currentUser.id);
+            if (!flagError) {
+                AppState.currentUser.verificationStatus = 'flagged';
+                justFlagged = true;
+                await notifyAdmin(
+                    'seller_flagged_for_verification',
+                    `Seller flagged for verification: ${escapeHtml(AppState.currentUser.name)}`,
+                    `<p>${escapeHtml(AppState.currentUser.name)} (${escapeHtml(AppState.currentUser.email)}) submitted a ${escapeHtml(brand)} card worth ${formatCurrency(value)} -- above the ${formatCurrency(SELLER_VERIFICATION_VALUE_THRESHOLD)} auto-review threshold, and this account was still unverified.</p>
+                     <p><a href="${window.location.origin}/admin">Review in the Seller Verification queue</a></p>`,
+                    AppState.currentUser.id
+                );
+            }
+        }
+
         showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
+        if (justFlagged) {
+            showToast('info', 'Since this is a higher-value submission on a new account, our team will do an extra verification check before approving.');
+        }
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
         handleSaleModeChange();
@@ -2730,7 +2755,7 @@ async function renderAdmin() {
     try {
         await withLoading(async () => {
             const [usersRes, listingsRes, submissionsRes, ordersRes, , emailQueueRes] = await Promise.all([
-                supabaseClient.from('profiles').select('id, name, email, role, created_at, suspended'),
+                supabaseClient.from('profiles').select('id, name, email, role, created_at, suspended, verification_status'),
                 supabaseClient.from('listings').select('*'),
                 supabaseClient.from('submissions').select('*').is('deleted_at', null),
                 supabaseClient.from('orders').select('*'),
@@ -2803,6 +2828,7 @@ function switchAdminPage(page) {
         brands: 'adminPageBrands',
         notifications: 'adminPageNotifications',
         audit: 'adminPageAudit',
+        verification: 'adminPageVerification',
         disputes: 'adminPageDisputes'
     };
     const target = document.getElementById(pageMap[page]);
@@ -2842,6 +2868,9 @@ function switchAdminPage(page) {
     } else if (page === 'disputes' && !adminPageRenderedOnce.disputes) {
         renderDisputesTable();
         adminPageRenderedOnce.disputes = true;
+    } else if (page === 'verification' && !adminPageRenderedOnce.verification) {
+        renderVerificationQueue();
+        adminPageRenderedOnce.verification = true;
     }
 }
 
@@ -2859,14 +2888,34 @@ function toggleAdminSidebarCollapse() {
     document.getElementById('adminSidebar').classList.toggle('collapsed');
 }
 
-function updateAdminNavBadges() {
+async function updateAdminNavBadges() {
     if (!AppState.adminData) return;
     const pendingCount = AppState.adminData.submissions.filter((s) => s.statusKey === 'pending_review').length;
     const subBadge = document.getElementById('navBadgeSubmissions');
     subBadge.textContent = pendingCount;
     subBadge.classList.toggle('hidden', pendingCount === 0);
-    // Disputes badge wired up once real dispute data is fetched -- see
-    // renderDisputesTable(), which updates this same element.
+
+    // Verification and Disputes badges need their own lightweight counts --
+    // that data isn't part of the main admin fetch, so without this they'd
+    // only become accurate after the admin happened to click into those
+    // pages once. Fetched here so the sidebar is honest from the moment
+    // the dashboard loads.
+    try {
+        const [{ count: flaggedCount }, { count: openDisputeCount }] = await Promise.all([
+            supabaseClient.from('profiles').select('id', { count: 'exact', head: true }).eq('verification_status', 'flagged'),
+            supabaseClient.from('disputes').select('id', { count: 'exact', head: true }).in('status', ['open', 'investigating'])
+        ]);
+
+        const verBadge = document.getElementById('navBadgeVerification');
+        verBadge.textContent = flaggedCount || 0;
+        verBadge.classList.toggle('hidden', !flaggedCount);
+
+        const disputeBadge = document.getElementById('navBadgeDisputes');
+        disputeBadge.textContent = openDisputeCount || 0;
+        disputeBadge.classList.toggle('hidden', !openDisputeCount);
+    } catch (error) {
+        console.error('Unable to fetch verification/dispute badge counts:', error);
+    }
 }
 
 /**
@@ -3246,6 +3295,97 @@ function goToMarketplacePendingPage(page) {
  * status, and basic resolve/refund actions. Also updates the sidebar
  * badge for open disputes.
  */
+/**
+ * Seller Verification queue. Shows every account currently flagged for
+ * review (auto-flagged at submission time when an unverified seller
+ * submits above $200, or manually flagged by an admin from the Users
+ * page) with full context: account age, total submissions, and any
+ * previous rejections -- everything needed to make a verify/suspend call
+ * without switching pages.
+ */
+async function renderVerificationQueue() {
+    const table = document.getElementById('verificationTable');
+    const empty = document.getElementById('verificationEmpty');
+    table.innerHTML = renderSkeletonTableRows(6, 3);
+    empty.classList.add('hidden');
+
+    try {
+        const { data: flaggedSellers, error: sellersError } = await supabaseClient
+            .from('profiles')
+            .select('id, name, email, created_at, verification_status')
+            .eq('verification_status', 'flagged')
+            .order('created_at', { ascending: false });
+
+        if (sellersError) throw sellersError;
+
+        const badge = document.getElementById('navBadgeVerification');
+        badge.textContent = (flaggedSellers || []).length;
+        badge.classList.toggle('hidden', (flaggedSellers || []).length === 0);
+
+        if (!flaggedSellers || flaggedSellers.length === 0) {
+            table.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        const sellerIds = flaggedSellers.map((s) => s.id);
+        const { data: allSubs, error: subsError } = await supabaseClient
+            .from('submissions')
+            .select('seller_id, status, face_value')
+            .in('seller_id', sellerIds)
+            .is('deleted_at', null);
+        if (subsError) throw subsError;
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>Seller</th><th>Account Age</th><th>Total Submissions</th><th>Previous Rejections</th><th>Actions</th></tr></thead>
+                <tbody>
+                    ${flaggedSellers
+                        .map((s) => {
+                            const theirSubs = (allSubs || []).filter((sub) => sub.seller_id === s.id);
+                            const rejections = theirSubs.filter((sub) => sub.status === 'rejected').length;
+                            const ageInDays = Math.floor((Date.now() - new Date(s.created_at).getTime()) / (1000 * 60 * 60 * 24));
+                            return `
+                        <tr>
+                            <td data-label="Seller">${escapeHtml(s.name)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(s.email)}</span></td>
+                            <td data-label="Account Age">${ageInDays === 0 ? 'Today' : `${ageInDays} day${ageInDays === 1 ? '' : 's'}`}</td>
+                            <td data-label="Total Submissions">${theirSubs.length}</td>
+                            <td data-label="Previous Rejections">${rejections > 0 ? `<span class="badge badge-red">${rejections}</span>` : '0'}</td>
+                            <td data-label="Actions">
+                                <button class="btn btn-primary btn-sm" onclick="setSellerVerificationStatus('${s.id}', 'verified', '${escapeJsString(s.name)}')">Verify</button>
+                                <button class="btn btn-outline btn-sm" onclick="viewSellerHistory('${s.id}', '${escapeJsString(s.name)}')">Full History</button>
+                                <button class="btn btn-outline btn-sm btn-danger-outline" onclick="toggleSellerSuspension('${s.id}', '${escapeJsString(s.name)}', false)">Suspend</button>
+                            </td>
+                        </tr>
+                    `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load the seller verification queue.');
+    }
+}
+
+async function setSellerVerificationStatus(sellerId, newStatus, sellerName) {
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('profiles').update({ verification_status: newStatus }).eq('id', sellerId);
+            if (error) throw error;
+        });
+        await logAdminAction(`seller_${newStatus}`, 'seller', sellerId, null, { sellerName });
+        showToast('success', `${sellerName} marked as ${newStatus}.`);
+        if (AppState.currentUser && AppState.currentUser.id === sellerId) {
+            AppState.currentUser.verificationStatus = newStatus;
+        }
+        renderVerificationQueue();
+        if (adminPageRenderedOnce.users) renderUsersTable();
+    } catch (error) {
+        showError(error, 'Unable to update verification status.');
+    }
+}
+
 async function renderDisputesTable() {
     const table = document.getElementById('disputesTable');
     const empty = document.getElementById('disputesEmpty');
@@ -3355,6 +3495,7 @@ function renderUsersTable() {
                     <th>Email</th>
                     <th>Role</th>
                     <th>Status</th>
+                    <th>Verification</th>
                     <th>Joined</th>
                     <th>Actions</th>
                 </tr>
@@ -3368,12 +3509,20 @@ function renderUsersTable() {
                         <td data-label="Email">${escapeHtml(u.email)}</td>
                         <td data-label="Role"><span class="badge ${u.role === 'admin' ? 'badge-red' : u.role === 'seller' ? 'badge-blue' : 'badge-green'}">${u.role}</span></td>
                         <td data-label="Status">${u.suspended ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>'}</td>
+                        <td data-label="Verification">${
+                            u.verification_status === 'flagged'
+                                ? '<span class="badge badge-yellow">Flagged</span>'
+                                : u.verification_status === 'verified'
+                                ? '<span class="badge badge-green">Verified</span>'
+                                : '<span class="badge badge-gray">Unverified</span>'
+                        }</td>
                         <td data-label="Joined">${new Date(u.created_at).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Actions">${
                             u.role === 'admin'
                                 ? '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
                                 : `<button class="btn btn-sm ${u.suspended ? 'btn-primary' : 'btn-outline btn-danger-outline'}" onclick="toggleSellerSuspension('${u.id}', '${escapeJsString(u.name)}', ${u.suspended})">${u.suspended ? 'Reinstate' : 'Suspend'}</button>
-                                   <button class="btn btn-outline btn-sm" onclick="viewSellerHistory('${u.id}', '${escapeJsString(u.name)}')">History</button>`
+                                   <button class="btn btn-outline btn-sm" onclick="viewSellerHistory('${u.id}', '${escapeJsString(u.name)}')">History</button>
+                                   ${u.verification_status !== 'flagged' && u.verification_status !== 'verified' ? `<button class="btn btn-outline btn-sm" onclick="setSellerVerificationStatus('${u.id}', 'flagged', '${escapeJsString(u.name)}')">Flag for Review</button>` : ''}`
                         }</td>
                     </tr>
                 `
