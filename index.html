@@ -825,115 +825,238 @@
 
         <!-- ADMIN PANEL -->
         <section id="admin-section" class="page-section hidden">
-            <div class="container">
-                <h1>Admin Panel</h1>
+            <div class="admin-shell">
+                <button class="admin-mobile-toggle" onclick="toggleAdminSidebar()" aria-label="Toggle admin menu">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>
+                    Menu
+                </button>
+                <div class="admin-sidebar-overlay hidden" id="adminSidebarOverlay" onclick="toggleAdminSidebar()"></div>
 
-                <div class="empty-state admin-welcome hidden" id="adminWelcomeEmpty">
-                    <div class="empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 4.5v6c0 5.5-3.9 9.7-9 11-5.1-1.3-9-5.5-9-11v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg></div>
-                    <p class="empty-title">Welcome to your Admin Panel</p>
-                    <p class="empty-sub">There's no activity yet — no submissions to review, no listings, no sales. Once real users start buying and selling, everything will show up here in real time.</p>
-                    <div class="not-found-btns">
-                        <button class="btn btn-primary" onclick="router('home')">View Main Site</button>
-                        <button class="btn btn-secondary" onclick="router('about')">About Giftlio</button>
+                <aside class="admin-sidebar" id="adminSidebar">
+                    <div class="admin-sidebar-head">
+                        <span class="admin-sidebar-title">Admin</span>
+                        <button class="admin-sidebar-collapse" onclick="toggleAdminSidebarCollapse()" aria-label="Collapse sidebar" title="Collapse sidebar">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                        </button>
                     </div>
-                </div>
+                    <nav class="admin-nav">
+                        <button class="admin-nav-item active" data-admin-page="dashboard" onclick="switchAdminPage('dashboard')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+                            <span class="admin-nav-label">Dashboard</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="submissions" onclick="switchAdminPage('submissions')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                            <span class="admin-nav-label">Submissions</span>
+                            <span class="admin-nav-badge hidden" id="navBadgeSubmissions">0</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="listings" onclick="switchAdminPage('listings')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                            <span class="admin-nav-label">Active Listings</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="users" onclick="switchAdminPage('users')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            <span class="admin-nav-label">Users</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="brands" onclick="switchAdminPage('brands')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+                            <span class="admin-nav-label">Brand Settings</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="notifications" onclick="switchAdminPage('notifications')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z" opacity="0"/><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+                            <span class="admin-nav-label">Email Notifications</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="audit" onclick="switchAdminPage('audit')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 4.5v6c0 5.5-3.9 9.7-9 11-5.1-1.3-9-5.5-9-11v-6L12 2z"/></svg>
+                            <span class="admin-nav-label">Audit Log</span>
+                        </button>
+                        <button class="admin-nav-item" data-admin-page="disputes" onclick="switchAdminPage('disputes')">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                            <span class="admin-nav-label">Disputes</span>
+                            <span class="admin-nav-badge hidden" id="navBadgeDisputes">0</span>
+                        </button>
+                    </nav>
+                </aside>
 
-                <div class="admin-summary skeleton-only hidden" id="adminSkeleton" aria-hidden="true"></div>
-
-                <div id="adminStatsView">
-                    <div class="admin-summary">
-                        <div class="summary-card">
-                            <div class="summary-label">Total Users</div>
-                            <div class="summary-value" id="adminTotalUsers">0</div>
+                <div class="admin-main">
+                    <div class="empty-state admin-welcome hidden" id="adminWelcomeEmpty">
+                        <div class="empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 4.5v6c0 5.5-3.9 9.7-9 11-5.1-1.3-9-5.5-9-11v-6L12 2z"/><path d="M9 12l2 2 4-4"/></svg></div>
+                        <p class="empty-title">Welcome to your Admin Panel</p>
+                        <p class="empty-sub">There's no activity yet — no submissions to review, no listings, no sales. Once real users start buying and selling, everything will show up here in real time.</p>
+                        <div class="not-found-btns">
+                            <button class="btn btn-primary" onclick="router('home')">View Main Site</button>
+                            <button class="btn btn-secondary" onclick="router('about')">About Giftlio</button>
                         </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Active Listings</div>
-                            <div class="summary-value" id="adminActiveListings">0</div>
-                        </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Pending Reviews</div>
-                            <div class="summary-value" id="adminPending">0</div>
-                        </div>
-                        <div class="summary-card">
-                            <div class="summary-label">Total Sales</div>
-                            <div class="summary-value" id="adminSales">$0.00</div>
-                        </div>
                     </div>
 
-                <div class="admin-section">
-                    <h2>Submission Review</h2>
-                    <div class="admin-subtabs">
-                        <button class="admin-subtab active" id="tabInstantBtn" onclick="switchPendingTab('instant')">Instant Sell Submissions</button>
-                        <button class="admin-subtab" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
-                    </div>
-                    <div id="instantPendingPanel">
-                        <div class="table-wrapper" id="pendingTable"></div>
-                        <div class="empty-state hidden" id="pendingEmpty">
-                            <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-                            <p>No pending Instant Sell submissions</p>
-                            <p class="empty-sub">All caught up!</p>
+                    <div id="adminPagesWrap">
+                        <!-- DASHBOARD -->
+                        <div class="admin-page" id="adminPageDashboard">
+                            <h1>Dashboard</h1>
+                            <div class="admin-cards-grid" id="adminCardsGrid"></div>
+                            <div class="admin-charts-grid">
+                                <div class="chart-card">
+                                    <div class="chart-card-head">
+                                        <h3>Revenue</h3>
+                                        <div class="chart-range-toggle">
+                                            <button class="chart-range-btn" data-range="7" onclick="setRevenueRange(7)">7d</button>
+                                            <button class="chart-range-btn active" data-range="30" onclick="setRevenueRange(30)">30d</button>
+                                            <button class="chart-range-btn" data-range="90" onclick="setRevenueRange(90)">90d</button>
+                                        </div>
+                                    </div>
+                                    <div id="revenueChart"><div class="chart-skeleton"><div class="skel" style="height:140px; border-radius:6px;"></div></div></div>
+                                </div>
+                                <div class="chart-card">
+                                    <div class="chart-card-head"><h3>Submissions by Status</h3></div>
+                                    <div id="statusChart"><div class="chart-skeleton"><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px;"></div><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px; width:80%;"></div><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px; width:60%;"></div><div class="skel" style="height:12px; border-radius:6px; width:40%;"></div></div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SUBMISSIONS -->
+                        <div class="admin-page hidden" id="adminPageSubmissions">
+                            <h1>Submissions</h1>
+                            <div class="admin-subtabs">
+                                <button class="admin-subtab active" id="tabInstantBtn" onclick="switchPendingTab('instant')">Instant Sell Submissions</button>
+                                <button class="admin-subtab" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
+                            </div>
+                            <div id="instantPendingPanel">
+                                <div class="audit-log-filters">
+                                    <input type="text" id="instantSearchInput" placeholder="Search brand, seller, or value..." style="flex: 1; min-width: 200px;" oninput="renderInstantPendingTable()">
+                                    <select id="instantSortSelect" onchange="renderInstantPendingTable()">
+                                        <option value="date_desc">Newest first</option>
+                                        <option value="date_asc">Oldest first</option>
+                                        <option value="amount_desc">Highest offer</option>
+                                        <option value="amount_asc">Lowest offer</option>
+                                    </select>
+                                </div>
+                                <div class="table-wrapper" id="pendingTable"></div>
+                                <div class="pagination-bar" id="pendingPagination"></div>
+                                <div class="empty-state hidden" id="pendingEmpty">
+                                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                    <p>No pending Instant Sell submissions</p>
+                                    <p class="empty-sub">All caught up!</p>
+                                </div>
+                            </div>
+                            <div id="marketplacePendingPanel" class="hidden">
+                                <div class="audit-log-filters">
+                                    <input type="text" id="marketplaceSearchInput" placeholder="Search brand, seller, or value..." style="flex: 1; min-width: 200px;" oninput="renderMarketplacePendingTable()">
+                                    <select id="marketplaceSortSelect" onchange="renderMarketplacePendingTable()">
+                                        <option value="date_desc">Newest first</option>
+                                        <option value="date_asc">Oldest first</option>
+                                        <option value="amount_desc">Highest price</option>
+                                        <option value="amount_asc">Lowest price</option>
+                                    </select>
+                                </div>
+                                <div class="table-wrapper" id="marketplacePendingTable"></div>
+                                <div class="pagination-bar" id="marketplacePagination"></div>
+                                <div class="empty-state hidden" id="marketplacePendingEmpty">
+                                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                    <p>No pending Marketplace listings</p>
+                                    <p class="empty-sub">All caught up!</p>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <h2>Orders Awaiting Delivery</h2>
+                                <p class="section-subtitle">Verify the card balance, then click Deliver to email the buyer their gift card details.</p>
+                                <div class="table-wrapper" id="pendingDeliveryTable"></div>
+                                <div class="empty-state hidden" id="pendingDeliveryEmpty">
+                                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                    <p>No orders awaiting delivery</p>
+                                    <p class="empty-sub">All caught up!</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ACTIVE LISTINGS -->
+                        <div class="admin-page hidden" id="adminPageListings">
+                            <h1>Active Listings</h1>
+                            <p class="section-subtitle">Every live card on the marketplace. Suspending hides a listing from Browse but keeps the record for audit purposes; removing is permanent.</p>
+                            <div class="audit-log-filters">
+                                <input type="text" id="listingsSearchInput" placeholder="Search retailer, seller, or value..." style="flex: 1; min-width: 200px;" oninput="applyListingsFilters()">
+                                <select id="listingsFilterMode" onchange="applyListingsFilters()">
+                                    <option value="">All listing types</option>
+                                    <option value="instant">Instant Sell</option>
+                                    <option value="marketplace">Marketplace</option>
+                                </select>
+                                <select id="listingsFilterStatus" onchange="applyListingsFilters()">
+                                    <option value="">All statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="suspended">Suspended</option>
+                                    <option value="sold">Sold</option>
+                                    <option value="inactive">Removed</option>
+                                </select>
+                            </div>
+                            <div class="table-wrapper" id="allListingsTable"></div>
+                            <div class="pagination-bar" id="listingsPagination"></div>
+                        </div>
+
+                        <!-- USERS -->
+                        <div class="admin-page hidden" id="adminPageUsers">
+                            <h1>Users</h1>
+                            <div class="audit-log-filters">
+                                <input type="text" id="usersSearchInput" placeholder="Search name or email..." style="flex: 1; min-width: 200px;" oninput="renderUsersTable()">
+                                <select id="usersSortSelect" onchange="renderUsersTable()">
+                                    <option value="date_desc">Newest first</option>
+                                    <option value="date_asc">Oldest first</option>
+                                    <option value="name_asc">Name A-Z</option>
+                                </select>
+                            </div>
+                            <div class="table-wrapper" id="usersTable"></div>
+                            <div class="pagination-bar" id="usersPagination"></div>
+                        </div>
+
+                        <!-- BRAND SETTINGS -->
+                        <div class="admin-page hidden" id="adminPageBrands">
+                            <h1>Brand Settings</h1>
+                            <p class="section-subtitle">Sets the buyer discount for Instant Sell listings, per retailer (0-25%). Applies to all new approvals immediately — no redeploy needed. Marketplace listings aren't affected; sellers set their own price there.</p>
+                            <div class="table-wrapper" id="brandDiscountsTable"></div>
+                        </div>
+
+                        <!-- EMAIL NOTIFICATIONS -->
+                        <div class="admin-page hidden" id="adminPageNotifications">
+                            <h1>Email Notifications</h1>
+                            <p class="section-subtitle">Every notification the system has attempted to send, admin and seller-facing. Failed sends can be retried individually or all at once.</p>
+                            <div class="audit-log-filters">
+                                <select id="emailFilterStatus" onchange="renderEmailQueueTable()">
+                                    <option value="">All statuses</option>
+                                    <option value="sent">Sent</option>
+                                    <option value="failed">Failed</option>
+                                    <option value="pending">Pending</option>
+                                </select>
+                                <button class="btn btn-outline btn-sm" onclick="retryAllFailedEmails()">Retry All Failed</button>
+                            </div>
+                            <div class="table-wrapper" id="emailQueueTable"></div>
+                            <div class="pagination-bar" id="emailQueuePagination"></div>
+                        </div>
+
+                        <!-- AUDIT LOG -->
+                        <div class="admin-page hidden" id="adminPageAudit">
+                            <h1>Audit Log</h1>
+                            <p class="section-subtitle">Every action taken by every admin, for accountability and disputes.</p>
+                            <div class="audit-log-filters">
+                                <select id="auditFilterAdmin"><option value="">All admins</option></select>
+                                <select id="auditFilterAction"><option value="">All action types</option></select>
+                                <input type="date" id="auditFilterFrom" aria-label="From date">
+                                <input type="date" id="auditFilterTo" aria-label="To date">
+                                <button class="btn btn-outline btn-sm" onclick="applyAuditLogFilters()">Filter</button>
+                                <button class="btn btn-outline btn-sm" onclick="exportAuditLogCsv()">Export CSV</button>
+                            </div>
+                            <div class="table-wrapper" id="auditLogTable"></div>
+                        </div>
+
+                        <!-- DISPUTES -->
+                        <div class="admin-page hidden" id="adminPageDisputes">
+                            <h1>Disputes</h1>
+                            <p class="section-subtitle">Cases raised by buyers about a card or transaction.</p>
+                            <div class="table-wrapper" id="disputesTable"></div>
+                            <div class="empty-state hidden" id="disputesEmpty">
+                                <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                <p>No disputes right now</p>
+                                <p class="empty-sub">All caught up!</p>
+                            </div>
                         </div>
                     </div>
-                    <div id="marketplacePendingPanel" class="hidden">
-                        <div class="table-wrapper" id="marketplacePendingTable"></div>
-                        <div class="empty-state hidden" id="marketplacePendingEmpty">
-                            <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-                            <p>No pending Marketplace listings</p>
-                            <p class="empty-sub">All caught up!</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="admin-section">
-                    <h2>Orders Awaiting Delivery</h2>
-                    <p class="section-subtitle">Verify the card balance, then click Deliver to email the buyer their gift card details.</p>
-                    <div class="table-wrapper" id="pendingDeliveryTable"></div>
-                    <div class="empty-state hidden" id="pendingDeliveryEmpty">
-                        <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-                        <p>No orders awaiting delivery</p>
-                        <p class="empty-sub">All caught up!</p>
-                    </div>
-                </div>
-
-                <div class="admin-section">
-                    <h2>Brand Discounts</h2>
-                    <p class="section-subtitle">Sets the buyer discount for Instant Sell listings, per retailer (0-25%). Applies to all new approvals immediately — no redeploy needed. Marketplace listings aren't affected; sellers set their own price there.</p>
-                    <div class="table-wrapper" id="brandDiscountsTable"></div>
-                </div>
-
-                <div class="admin-section">
-                    <h2>Audit Log</h2>
-                    <p class="section-subtitle">Every action taken by every admin, for accountability and disputes.</p>
-                    <div class="audit-log-filters">
-                        <select id="auditFilterAdmin"><option value="">All admins</option></select>
-                        <select id="auditFilterAction"><option value="">All action types</option></select>
-                        <input type="date" id="auditFilterFrom" aria-label="From date">
-                        <input type="date" id="auditFilterTo" aria-label="To date">
-                        <button class="btn btn-outline btn-sm" onclick="applyAuditLogFilters()">Filter</button>
-                        <button class="btn btn-outline btn-sm" onclick="exportAuditLogCsv()">Export CSV</button>
-                    </div>
-                    <div class="table-wrapper" id="auditLogTable"></div>
-                </div>
-
-                <div class="admin-section">
-                    <h2>Active Listings</h2>
-                    <p class="section-subtitle">Every live card on the marketplace. Suspending hides a listing from Browse but keeps the record for audit purposes; removing is permanent.</p>
-                    <div class="audit-log-filters">
-                        <input type="text" id="listingsSearchInput" placeholder="Search retailer, seller, or value..." style="flex: 1; min-width: 200px;" oninput="applyListingsFilters()">
-                        <select id="listingsFilterMode" onchange="applyListingsFilters()">
-                            <option value="">All listing types</option>
-                            <option value="instant">Instant Sell</option>
-                            <option value="marketplace">Marketplace</option>
-                        </select>
-                        <select id="listingsFilterStatus" onchange="applyListingsFilters()">
-                            <option value="">All statuses</option>
-                            <option value="active">Active</option>
-                            <option value="suspended">Suspended</option>
-                            <option value="sold">Sold</option>
-                            <option value="inactive">Removed</option>
-                        </select>
-                    </div>
-                    <div class="table-wrapper" id="allListingsTable"></div>
                 </div>
 
                 <!-- Seller history modal, opened from Active Listings -->
@@ -941,12 +1064,6 @@
                 <div class="modal hidden" id="sellerHistoryModal">
                     <button class="modal-close" aria-label="Close" onclick="closeSellerHistoryModal()">×</button>
                     <div id="sellerHistoryContent"></div>
-                </div>
-
-                <div class="admin-section">
-                    <h2>All Users</h2>
-                    <div class="table-wrapper" id="usersTable"></div>
-                </div>
                 </div>
             </div>
         </section>
