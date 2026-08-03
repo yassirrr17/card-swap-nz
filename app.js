@@ -131,7 +131,9 @@ function subscribeToBrandDiscountChanges() {
 }
 
 async function loadBrandDiscounts() {
-    const { data, error } = await supabaseClient.from('brand_discounts').select('brand, discount_percent, instant_sell_available, retailer_enabled');
+    const { data, error } = await supabaseClient
+        .from('brand_discounts')
+        .select('brand, discount_percent, instant_sell_available, retailer_enabled, card_number_length, card_number_length_alt, card_number_format, pin_length, pin_required, confidence_level, validation_source, validation_notes');
     if (error) {
         console.error('Failed to load brand discounts:', error);
         return AppState.brandDiscounts;
@@ -145,7 +147,20 @@ async function loadBrandDiscounts() {
             // needs to know "can this retailer be bought or sold right
             // now" reads THIS field, from THIS single loader -- never a
             // locally cached copy, never a hardcoded assumption.
-            retailerEnabled: row.retailer_enabled !== false
+            retailerEnabled: row.retailer_enabled !== false,
+            // Retailer-specific card/PIN format rules, researched per
+            // brand. NULL length/format fields mean validation for that
+            // specific field is deliberately disabled -- the research
+            // couldn't confirm it from an official source, so it's never
+            // enforced with a guessed value.
+            cardNumberLength: row.card_number_length,
+            cardNumberLengthAlt: row.card_number_length_alt,
+            cardNumberFormat: row.card_number_format,
+            pinLength: row.pin_length,
+            pinRequired: row.pin_required === true,
+            confidenceLevel: row.confidence_level || 'low',
+            validationSource: row.validation_source || '',
+            validationNotes: row.validation_notes || ''
         };
     });
     AppState.brandDiscounts = map;
@@ -1981,6 +1996,113 @@ function selectBrandTile(brand) {
     document.getElementById('subBrand').value = brand;
     populateBrandDropdown();
     updateOffer();
+    showBrandValidationHints();
+    validateCardNumberField();
+    validatePinField();
+}
+
+/**
+ * Shows the brand-specific format hint under Card Number/PIN the instant a
+ * retailer is selected -- e.g. "Woolworths card numbers are 19 digits."
+ * For brands with unconfirmed rules, shows nothing rather than a guess.
+ */
+function showBrandValidationHints() {
+    const brand = document.getElementById('subBrand').value;
+    const rules = AppState.brandDiscounts[brand];
+    const cardHint = document.getElementById('subCardNumHint');
+    const pinHint = document.getElementById('subPinHint');
+
+    if (!rules) {
+        cardHint.classList.add('hidden');
+        pinHint.classList.add('hidden');
+        return;
+    }
+
+    const cardParts = [];
+    if (rules.cardNumberLength) {
+        cardParts.push(rules.cardNumberLengthAlt ? `${rules.cardNumberLength} or ${rules.cardNumberLengthAlt} digits` : `${rules.cardNumberLength} digits`);
+    }
+    if (rules.cardNumberFormat === 'alphanumeric') {
+        cardParts.push('letters and numbers allowed');
+    } else if (rules.cardNumberFormat === 'digits') {
+        cardParts.push('digits only');
+    }
+    if (cardParts.length > 0) {
+        cardHint.textContent = `${brand} card numbers: ${cardParts.join(', ')}`;
+        cardHint.classList.remove('hidden');
+    } else {
+        cardHint.classList.add('hidden');
+    }
+
+    if (rules.pinRequired) {
+        pinHint.textContent = rules.pinLength ? `${brand} requires a ${rules.pinLength}-digit PIN` : `${brand} requires a PIN`;
+        pinHint.classList.remove('hidden');
+    } else {
+        pinHint.textContent = `${brand} does not require a PIN`;
+        pinHint.classList.remove('hidden');
+    }
+}
+
+/**
+ * Real-time card number validation against the selected brand's rules --
+ * mirrors the server-side trigger's logic exactly, so the client-side
+ * error a seller sees while typing matches what the server would enforce.
+ * Never trust this alone -- see validate_card_format() in the database
+ * for the actual enforcement.
+ */
+function validateCardNumberField() {
+    const brand = document.getElementById('subBrand').value;
+    const value = document.getElementById('subCardNum').value;
+    const errorEl = document.getElementById('subCardNumError');
+    const rules = AppState.brandDiscounts[brand];
+    errorEl.textContent = '';
+    document.getElementById('subCardNum').classList.remove('field-error');
+
+    if (!rules || !value) return true;
+
+    if (rules.cardNumberLength) {
+        const validLengths = [rules.cardNumberLength, rules.cardNumberLengthAlt].filter(Boolean);
+        if (!validLengths.includes(value.length)) {
+            const expected = validLengths.length > 1 ? `${validLengths.join(' or ')} digits` : `${validLengths[0]} digits`;
+            errorEl.textContent = `${brand} card numbers are ${expected} long. You have entered ${value.length}.`;
+            document.getElementById('subCardNum').classList.add('field-error');
+            return false;
+        }
+    }
+
+    if (rules.cardNumberFormat === 'digits' && !/^[0-9]+$/.test(value)) {
+        errorEl.textContent = `${brand} card numbers contain digits only -- no letters or symbols.`;
+        document.getElementById('subCardNum').classList.add('field-error');
+        return false;
+    }
+
+    return true;
+}
+
+function validatePinField() {
+    const brand = document.getElementById('subBrand').value;
+    const value = document.getElementById('subPin').value;
+    const errorEl = document.getElementById('subPinError');
+    const rules = AppState.brandDiscounts[brand];
+    errorEl.textContent = '';
+    document.getElementById('subPin').classList.remove('field-error');
+
+    if (!rules) return true;
+
+    if (rules.pinRequired && !value) {
+        // Only shown as a hard error at submit time (handleSubmission) --
+        // while typing, an empty PIN just isn't flagged yet, since the
+        // seller may not have reached that field.
+        return true;
+    }
+
+    if (value && rules.pinLength && value.length !== rules.pinLength) {
+        errorEl.textContent = `${brand} PINs are ${rules.pinLength} digits long. You have entered ${value.length}.`;
+        document.getElementById('subPin').classList.add('field-error');
+        return false;
+    }
+
+    return true;
 }
 
 function showRetailerUnavailableNotice(brand) {
@@ -2195,6 +2317,22 @@ async function handleSubmission() {
         if (blockedForThisMode) {
             setFieldError('subBrand', 'subBrandError', `${brand} is temporarily unavailable. Please choose another retailer.`);
             hasError = true;
+        } else if (brandConfig) {
+            // Retailer-specific card/PIN format rules -- mirrors the
+            // server-side trigger exactly, so a seller never gets past
+            // this screen only to have the submission silently rejected
+            // by the database with no explanation.
+            if (!validateCardNumberField()) hasError = true;
+            if (!cardNum) {
+                setFieldError('subCardNum', 'subCardNumError', 'Enter the gift card number');
+                hasError = true;
+            }
+            if (brandConfig.pinRequired && !pin) {
+                setFieldError('subPin', 'subPinError', `A PIN is required for ${brand} gift cards.`);
+                hasError = true;
+            } else if (!validatePinField()) {
+                hasError = true;
+            }
         }
     }
 
@@ -4084,6 +4222,73 @@ function exportAuditLogCsv() {
  * per row. Brands with no row yet in brand_discounts show the 15% default
  * and get one created (upsert) the first time they're saved.
  */
+/**
+ * Opens the card/PIN validation rules editor for a single brand,
+ * pre-filled with its current rules. Saving writes directly to
+ * brand_discounts, which both the client-side validator and the
+ * server-side trigger read from -- so a rule change here takes effect
+ * everywhere immediately, no code changes needed.
+ */
+function openValidationRulesModal(brand) {
+    const rules = AppState.brandDiscounts[brand] || {};
+    document.getElementById('validationRulesTitle').textContent = `${brand} — Card/PIN Rules`;
+    document.getElementById('vrCardLength').value = rules.cardNumberLength || '';
+    document.getElementById('vrCardLengthAlt').value = rules.cardNumberLengthAlt || '';
+    document.getElementById('vrCardFormat').value = rules.cardNumberFormat || '';
+    document.getElementById('vrPinRequired').value = rules.pinRequired ? 'true' : 'false';
+    document.getElementById('vrPinLength').value = rules.pinLength || '';
+    document.getElementById('vrConfidence').value = rules.confidenceLevel || 'low';
+    document.getElementById('vrSource').value = rules.validationSource || '';
+    document.getElementById('vrNotes').value = rules.validationNotes || '';
+
+    document.getElementById('vrSaveBtn').onclick = () => saveValidationRules(brand);
+
+    document.getElementById('validationRulesOverlay').classList.remove('hidden');
+    document.getElementById('validationRulesModal').classList.remove('hidden');
+}
+
+function closeValidationRulesModal() {
+    document.getElementById('validationRulesOverlay').classList.add('hidden');
+    document.getElementById('validationRulesModal').classList.add('hidden');
+}
+
+async function saveValidationRules(brand) {
+    const cardLength = document.getElementById('vrCardLength').value;
+    const cardLengthAlt = document.getElementById('vrCardLengthAlt').value;
+    const cardFormat = document.getElementById('vrCardFormat').value;
+    const pinRequired = document.getElementById('vrPinRequired').value === 'true';
+    const pinLength = document.getElementById('vrPinLength').value;
+    const confidence = document.getElementById('vrConfidence').value;
+    const source = document.getElementById('vrSource').value.trim();
+    const notes = document.getElementById('vrNotes').value.trim();
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient
+                .from('brand_discounts')
+                .update({
+                    card_number_length: cardLength ? Number(cardLength) : null,
+                    card_number_length_alt: cardLengthAlt ? Number(cardLengthAlt) : null,
+                    card_number_format: cardFormat || null,
+                    pin_required: pinRequired,
+                    pin_length: pinLength ? Number(pinLength) : null,
+                    confidence_level: confidence,
+                    validation_source: source || null,
+                    validation_notes: notes || null
+                })
+                .eq('brand', brand);
+            if (error) throw error;
+        });
+
+        await logAdminAction('update_validation_rules', 'brand', null, brand, { confidence, pinRequired, cardLength: cardLength || null });
+        showToast('success', `${brand} card/PIN rules updated.`);
+        closeValidationRulesModal();
+        await renderBrandDiscountsTable();
+    } catch (error) {
+        showError(error, 'Unable to save validation rules.');
+    }
+}
+
 async function renderBrandDiscountsTable() {
     const container = document.getElementById('brandDiscountsTable');
     if (!container) return;
@@ -4103,6 +4308,7 @@ async function renderBrandDiscountsTable() {
                         <th>New Discount (0-25%)</th>
                         <th>Retailer Enabled</th>
                         <th>Instant Sell Only</th>
+                        <th>Validation Confidence</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -4117,6 +4323,7 @@ async function renderBrandDiscountsTable() {
                             const checkboxId = `brandAvailable-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const enabledId = `brandEnabled-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const errorId = `${inputId}Error`;
+                            const confidenceBadge = { high: 'badge-green', medium: 'badge-yellow', low: 'badge-red' }[config?.confidenceLevel || 'low'];
                             return `
                         <tr>
                             <td data-label="Brand"><strong>${escapeHtml(brand)}</strong></td>
@@ -4131,7 +4338,11 @@ async function renderBrandDiscountsTable() {
                             <td data-label="Instant Sell Only">
                                 <label class="checkbox-group" style="margin:0;" title="More granular: hides this retailer from Instant Sell submissions specifically, while Marketplace stays open."><input type="checkbox" id="${checkboxId}" ${isAvailable ? 'checked' : ''}> Available</label>
                             </td>
-                            <td data-label="Actions"><button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}')">Save</button></td>
+                            <td data-label="Validation Confidence"><span class="badge ${confidenceBadge}">${(config?.confidenceLevel || 'low').toUpperCase()}</span></td>
+                            <td data-label="Actions">
+                                <button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}')">Save</button>
+                                <button class="btn btn-outline btn-sm" onclick="openValidationRulesModal('${escapeJsString(brand)}')">Edit Card/PIN Rules</button>
+                            </td>
                         </tr>
                     `;
                         })
