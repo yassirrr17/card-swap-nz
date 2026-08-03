@@ -1,5 +1,5 @@
 /**
- * CardSwap NZ service worker.
+ * Giftlio service worker.
  *
  * Strategy:
  * - Precache the app shell (HTML/CSS/JS/manifest/icons) on install.
@@ -18,7 +18,7 @@
  *   cache.
  */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v4';
 const STATIC_CACHE = `cardswap-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `cardswap-runtime-${CACHE_VERSION}`;
 
