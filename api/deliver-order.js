@@ -6,14 +6,14 @@ module.exports = async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed.' });
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const resendApiKey = process.env.RESEND_API_KEY;
     // Works out of the box with no domain set up -- Resend's own test
     // sender. Once a domain is verified, set EMAIL_FROM in Vercel to
-    // something like "CardSwap NZ <noreply@cardswap.nz>" instead.
-    const emailFrom = process.env.EMAIL_FROM || 'CardSwap NZ <onboarding@resend.dev>';
+    // something like "Giftlio <noreply@giftlio.co.nz>" instead.
+    const emailFrom = process.env.EMAIL_FROM || 'Giftlio <onboarding@resend.dev>';
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
         console.error('Supabase environment variables are not fully configured.');
@@ -80,17 +80,30 @@ module.exports = async function handler(req, res) {
             .single();
         if (cardError || !card) throw cardError || new Error('Card details not found in vault.');
 
+        // card_vault.card_number/pin are encrypted at rest -- decrypt here,
+        // server-side only, right before they go into the email. This is
+        // the ONLY place in the whole app the real plaintext values ever
+        // exist outside the database.
+        const { data: decryptedCardNumber, error: cardNumError } = await supabaseAdmin.rpc('decrypt_card_value', { ciphertext_base64: card.card_number });
+        if (cardNumError) throw cardNumError;
+        let decryptedPin = null;
+        if (card.pin) {
+            const { data: pinValue, error: pinError } = await supabaseAdmin.rpc('decrypt_card_value', { ciphertext_base64: card.pin });
+            if (pinError) throw pinError;
+            decryptedPin = pinValue;
+        }
+
         const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
                 <h2 style="color:#1a237e;">Your ${order.brand} Gift Card</h2>
-                <p>Thanks for your purchase from CardSwap NZ! Here are your gift card details:</p>
+                <p>Thanks for your purchase from Giftlio! Here are your gift card details:</p>
                 <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin: 20px 0;">
-                    <p><strong>Card Number:</strong> ${card.card_number}</p>
-                    ${card.pin ? `<p><strong>PIN:</strong> ${card.pin}</p>` : ''}
+                    <p><strong>Card Number:</strong> ${decryptedCardNumber}</p>
+                    ${decryptedPin ? `<p><strong>PIN:</strong> ${decryptedPin}</p>` : ''}
                     <p><strong>Value:</strong> $${Number(card.current_balance).toFixed(2)}</p>
                     <p><strong>Expiry:</strong> ${card.expiry_date}</p>
                 </div>
-                <p>Please verify the balance within 24 hours of receiving this email and contact support@cardswap.nz immediately if there's any issue.</p>
+                <p>Please verify the balance within 24 hours of receiving this email and contact support@giftlio.co.nz immediately if there's any issue.</p>
                 <p style="color:#999; font-size:12px;">Order ID: ${order.public_id}</p>
             </div>
         `;
@@ -104,7 +117,7 @@ module.exports = async function handler(req, res) {
             body: JSON.stringify({
                 from: emailFrom,
                 to: order.buyer_email,
-                subject: `Your ${order.brand} Gift Card from CardSwap NZ`,
+                subject: `Your ${order.brand} Gift Card from Giftlio`,
                 html: emailHtml
             })
         });
