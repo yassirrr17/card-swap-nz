@@ -4,7 +4,7 @@
   "private": true,
   "description": "Giftlio - vanilla HTML/CSS/JS gift card marketplace with Supabase backend",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "build": "node scripts/generate-env.js"
