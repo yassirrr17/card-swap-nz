@@ -194,6 +194,65 @@
         </div>
     </div>
 
+    <!-- Retailer card/PIN validation rules editor -->
+    <div class="modal-overlay hidden" id="validationRulesOverlay" onclick="closeValidationRulesModal()"></div>
+    <div class="modal hidden" id="validationRulesModal">
+        <button class="modal-close" aria-label="Close" onclick="closeValidationRulesModal()">×</button>
+        <h2 id="validationRulesTitle" style="color: var(--navy); margin-bottom: 4px;">Card/PIN Rules</h2>
+        <p class="section-subtitle" style="margin-bottom: 16px;">Leave a length field blank to disable that check entirely -- only enforce what's actually been confirmed.</p>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="vrCardLength">Card number length</label>
+                <input type="number" id="vrCardLength" min="1" max="40" placeholder="Blank = not enforced">
+            </div>
+            <div class="form-group">
+                <label for="vrCardLengthAlt">Alternate length (optional)</label>
+                <input type="number" id="vrCardLengthAlt" min="1" max="40" placeholder="e.g. legacy card length">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="vrCardFormat">Card number format</label>
+            <select id="vrCardFormat">
+                <option value="">Not enforced</option>
+                <option value="digits">Digits only</option>
+                <option value="alphanumeric">Letters and numbers</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="vrPinRequired">PIN required?</label>
+                <select id="vrPinRequired">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="vrPinLength">PIN length</label>
+                <input type="number" id="vrPinLength" min="1" max="12" placeholder="Blank = not enforced">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="vrConfidence">Confidence level</label>
+            <select id="vrConfidence">
+                <option value="high">High -- confirmed from an official source</option>
+                <option value="medium">Medium -- reliable third party / inference</option>
+                <option value="low">Low -- educated guess, needs verification</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="vrSource">Source</label>
+            <textarea id="vrSource" rows="2" placeholder="e.g. retailer's official balance-checker page, URL"></textarea>
+        </div>
+        <div class="form-group">
+            <label for="vrNotes">Notes / assumptions</label>
+            <textarea id="vrNotes" rows="3" placeholder="Anything a future admin should know before trusting these rules"></textarea>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px;">
+            <button class="btn btn-outline" onclick="closeValidationRulesModal()">Cancel</button>
+            <button class="btn btn-primary" id="vrSaveBtn">Save Rules</button>
+        </div>
+    </div>
+
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
         <a href="/" onclick="event.preventDefault(); router('home'); toggleMobileMenu()">Home</a>
@@ -711,12 +770,15 @@
                             </div>
                             <div class="form-group">
                                 <label for="subCardNum">Gift Card Number *</label>
-                                <input type="password" id="subCardNum" placeholder="Enter full card number">
+                                <input type="password" id="subCardNum" placeholder="Enter full card number" oninput="validateCardNumberField()">
+                                <span class="field-hint hidden" id="subCardNumHint"></span>
                                 <span class="error-msg" id="subCardNumError"></span>
                             </div>
                             <div class="form-group">
                                 <label for="subPin">PIN</label>
-                                <input type="password" id="subPin" placeholder="Enter PIN if required">
+                                <input type="password" id="subPin" placeholder="Enter PIN if required" oninput="validatePinField()">
+                                <span class="field-hint hidden" id="subPinHint"></span>
+                                <span class="error-msg" id="subPinError"></span>
                             </div>
                             <div class="form-group">
                                 <label>Receipt Upload</label>
