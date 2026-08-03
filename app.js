@@ -5149,6 +5149,32 @@ function registerServiceWorker() {
             console.error('Service worker registration failed:', error);
         });
     });
+
+    // Because the service worker already calls skipWaiting() + clients.claim()
+    // (see service-worker.js), a new version takes over automatically in the
+    // background the moment it's detected -- no waiting for tabs to close.
+    // controllerchange fires exactly at that handover, and ONLY on a real
+    // update (it never fires on the very first install, since there's no
+    // previous controller to change from). The already-loaded page is still
+    // running the OLD app.js/index.html in memory though, so this banner is
+    // what tells the person a refresh will get them the new version.
+    let hasShownUpdateBanner = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hasShownUpdateBanner) return;
+        hasShownUpdateBanner = true;
+        showUpdateAvailableBanner();
+    });
+}
+
+function showUpdateAvailableBanner() {
+    const banner = document.createElement('div');
+    banner.className = 'update-available-banner';
+    banner.innerHTML = `
+        <span>A new version of Giftlio is available.</span>
+        <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+        <button class="update-banner-dismiss" aria-label="Dismiss" onclick="this.closest('.update-available-banner').remove()">×</button>
+    `;
+    document.body.appendChild(banner);
 }
 
 function isStandalone() {
