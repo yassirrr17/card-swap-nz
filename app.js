@@ -4291,14 +4291,27 @@ async function approveSubmission(submissionDbId) {
             if (sellerProfileError) throw sellerProfileError;
             const sellerSince = new Date(sellerProfile.created_at).toISOString().slice(0, 7);
 
+            // submissions.card_number/pin are encrypted at rest -- decrypt
+            // here (admin's own session, checked server-side by the
+            // decrypt_card_value function) before copying into card_vault,
+            // whose own encrypt trigger will re-encrypt them fresh. Without
+            // this step, the already-ciphertext value would get encrypted
+            // a second time, corrupting it.
+            const [{ data: decryptedCardNumber, error: cardNumError }, { data: decryptedPin, error: pinError }] = await Promise.all([
+                supabaseClient.rpc('decrypt_card_value', { ciphertext_base64: sub.cardNumber }),
+                sub.pin ? supabaseClient.rpc('decrypt_card_value', { ciphertext_base64: sub.pin }) : Promise.resolve({ data: null, error: null })
+            ]);
+            if (cardNumError) throw cardNumError;
+            if (pinError) throw pinError;
+
             const { data: vaultData, error: vaultError } = await supabaseClient
                 .from('card_vault')
                 .insert({
                     submission_id: submissionDbId,
                     seller_id: sub.sellerId,
                     brand: sub.brand,
-                    card_number: sub.cardNumber,
-                    pin: sub.pin,
+                    card_number: decryptedCardNumber,
+                    pin: decryptedPin,
                     current_balance: sub.currentBalance,
                     expiry_date: sub.expiryDate,
                     is_redeemed: false
