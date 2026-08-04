@@ -18,7 +18,7 @@
  *   cache.
  */
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = `cardswap-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `cardswap-runtime-${CACHE_VERSION}`;
 
@@ -133,8 +133,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The actual app code (app.js, supabase-client.js, style.css) --
+  // network-first too. stale-while-revalidate was used here originally,
+  // but that always serves whatever was cached LAST time and only
+  // refreshes in the background for next load -- during active,
+  // frequent deployment that meant staying one version behind
+  // indefinitely unless enough time passed between reloads for the
+  // background refresh to catch up. Correctness matters more than the
+  // performance gain here.
+  const isCoreAppCode = url.pathname.endsWith('/app.js') || url.pathname.endsWith('/supabase-client.js') || url.pathname.endsWith('/style.css');
+  if (isCoreAppCode) {
+    event.respondWith(networkFirst(request, STATIC_CACHE));
+    return;
+  }
+
   // Same-origin static assets and known cross-origin static assets
-  // (Google Fonts, Supabase JS SDK CDN): stale-while-revalidate.
+  // (Google Fonts, Supabase JS SDK CDN): stale-while-revalidate. Fine
+  // here -- these change rarely if ever, so the performance benefit is
+  // worth it without the staleness risk.
   const isSameOrigin = url.origin === self.location.origin;
   const isKnownStaticCdn =
     url.hostname === 'fonts.googleapis.com' ||
