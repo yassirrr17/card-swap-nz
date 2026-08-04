@@ -790,6 +790,17 @@
                                 <p class="file-name" id="fileName"></p>
                                 <span class="error-msg" id="subReceiptError"></span>
                             </div>
+                            <div class="form-group">
+                                <label>Photo of the Card</label>
+                                <div class="file-upload" tabindex="0" role="button" aria-label="Upload a photo of the card, JPG or PNG up to 5MB" onclick="document.getElementById('subCardPhoto').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); document.getElementById('subCardPhoto').click();}">
+                                    <p><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>Click to upload a card photo</p>
+                                    <p class="file-hint">JPG or PNG up to 5MB</p>
+                                </div>
+                                <input type="file" id="subCardPhoto" hidden accept=".jpg,.jpeg,.png">
+                                <p class="file-name" id="cardPhotoFileName"></p>
+                                <span class="error-msg" id="subCardPhotoError"></span>
+                                <span class="field-hint" id="cardEvidenceHint">Provide at least one of Receipt or Card Photo -- for retailers we can't yet auto-verify, this is required.</span>
+                            </div>
                             <div class="offer-box">
                                 <p id="offerLabel">Estimated offer: <strong id="offerAmount">$0.00</strong></p>
                                 <p class="offer-note" id="offerNote">Final offer may vary after verification</p>
@@ -821,17 +832,21 @@
                             <div class="summary-card">
                                 <div class="summary-label">Total Earnings</div>
                                 <div class="summary-value" id="earnTotal">$0.00</div>
+                                <p class="summary-sub">From released payouts only</p>
                             </div>
                             <div class="summary-card">
-                                <div class="summary-label">Available for Payout</div>
-                                <div class="summary-value" id="earnAvailable">$0.00</div>
-                            </div>
-                            <div class="summary-card">
-                                <div class="summary-label">Total Paid Out</div>
+                                <div class="summary-label">Pending Payout</div>
                                 <div class="summary-value" id="earnPaid">$0.00</div>
+                                <p class="summary-sub">Sold or verified, not yet released</p>
+                            </div>
+                            <div class="summary-card">
+                                <div class="summary-label">Available for Next Payout</div>
+                                <div class="summary-value" id="earnAvailable">$0.00</div>
+                                <p class="summary-sub">Past the holding period, ready to release</p>
                             </div>
                         </div>
                         <p class="earn-pending-note hidden" id="earnPendingNote"></p>
+                        <p class="earn-hold-note">Marketplace payouts are released 48 hours after delivery. Instant Sell payouts are released 24 hours after approval.</p>
                         <div class="payout-info">
                             <p><strong>Payout Method:</strong> Bank Transfer</p>
                             <p><strong>Payout Schedule:</strong> Every Friday</p>
@@ -989,6 +1004,10 @@
                                 <button class="admin-subtab" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
                             </div>
                             <div id="instantPendingPanel">
+                                <div class="ownership-note">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                                    Giftlio-owned purchase — verify card and receipt before approving payout.
+                                </div>
                                 <div class="audit-log-filters">
                                     <input type="text" id="instantSearchInput" placeholder="Search brand, seller, or value..." style="flex: 1; min-width: 200px;" oninput="renderInstantPendingTable()">
                                     <select id="instantSortSelect" onchange="renderInstantPendingTable()">
@@ -1032,6 +1051,28 @@
                                 <div class="empty-state hidden" id="pendingDeliveryEmpty">
                                     <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
                                     <p>No orders awaiting delivery</p>
+                                    <p class="empty-sub">All caught up!</p>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <h2>Marketplace Payouts Awaiting Release</h2>
+                                <p class="section-subtitle">Released 48 hours after delivery, to give buyers time to flag any issue before the seller is paid.</p>
+                                <div class="table-wrapper" id="payoutsAwaitingTable"></div>
+                                <div class="empty-state hidden" id="payoutsAwaitingEmpty">
+                                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                    <p>No marketplace payouts pending release</p>
+                                    <p class="empty-sub">All caught up!</p>
+                                </div>
+                            </div>
+
+                            <div class="admin-section">
+                                <h2>Instant Sell Payouts Awaiting Release</h2>
+                                <p class="section-subtitle">Released 24 hours after approval, giving a short window to catch anything wrong with the card before the seller is paid.</p>
+                                <div class="table-wrapper" id="instantPayoutsAwaitingTable"></div>
+                                <div class="empty-state hidden" id="instantPayoutsAwaitingEmpty">
+                                    <div class="empty-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                                    <p>No Instant Sell payouts pending release</p>
                                     <p class="empty-sub">All caught up!</p>
                                 </div>
                             </div>
@@ -1231,8 +1272,9 @@
                         <li>Sellers must legally own all gift cards listed</li>
                         <li>Must provide accurate balance information</li>
                         <li>Stolen or fraudulent cards are prohibited and will result in account suspension</li>
-                        <li>Sellers receive 85% of selling price; platform retains 15% service fee</li>
-                        <li>Payouts processed within 3-5 business days after card sale</li>
+                        <li>For Instant Sell, sellers are paid the calculated offer shown at submission, based on that retailer's current rate</li>
+                        <li>For Marketplace, sellers set their own price and receive it minus Giftlio's commission once a buyer purchases the card</li>
+                        <li>Payouts are processed after admin verification; typical turnaround is a few business days</li>
                     </ul>
 
                     <h3>5. Prohibited Activity</h3>
@@ -1382,7 +1424,7 @@
                     <div class="how-card">
                         <div class="how-num">4</div>
                         <h3>Sellers Get Paid</h3>
-                        <p>Sellers receive 85% of the sale price directly to their bank account within 3-5 business days.</p>
+                        <p>Once your card sells, we process your payout after a quick verification check.</p>
                     </div>
                 </div>
             </div>
