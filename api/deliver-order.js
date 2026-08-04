@@ -130,7 +130,7 @@ module.exports = async function handler(req, res) {
 
         const { error: updateOrderError } = await supabaseAdmin
             .from('orders')
-            .update({ status: 'delivered', updated_at: new Date().toISOString() })
+            .update({ status: 'delivered', delivered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
             .eq('id', orderId);
         if (updateOrderError) throw updateOrderError;
 
