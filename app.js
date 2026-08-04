@@ -133,7 +133,7 @@ function subscribeToBrandDiscountChanges() {
 async function loadBrandDiscounts() {
     const { data, error } = await supabaseClient
         .from('brand_discounts')
-        .select('brand, discount_percent, instant_sell_available, retailer_enabled, card_number_length, card_number_length_alt, card_number_format, pin_length, pin_required, confidence_level, validation_source, validation_notes');
+        .select('brand, discount_percent, resale_markup_percent, instant_sell_available, retailer_enabled, card_number_length, card_number_length_alt, card_number_format, pin_length, pin_required, confidence_level, validation_source, validation_notes');
     if (error) {
         console.error('Failed to load brand discounts:', error);
         return AppState.brandDiscounts;
@@ -142,6 +142,7 @@ async function loadBrandDiscounts() {
     (data || []).forEach((row) => {
         map[row.brand] = {
             discountPercent: Number(row.discount_percent),
+            resaleMarkupPercent: Number(row.resale_markup_percent || 0),
             instantSellAvailable: row.instant_sell_available !== false,
             // The authoritative whole-retailer toggle. Every page that
             // needs to know "can this retailer be bought or sold right
@@ -555,6 +556,8 @@ function submissionRowToView(row) {
         pin: row.pin,
         receiptFilename: row.receipt_filename || '',
         receiptStoragePath: row.receipt_storage_path || null,
+        cardPhotoFilename: row.card_photo_filename || '',
+        cardPhotoStoragePath: row.card_photo_storage_path || null,
         offerAmount: Number(row.offer_amount),
         saleMode: row.sale_mode || 'instant',
         sellerSetPrice: row.seller_set_price !== null && row.seller_set_price !== undefined ? Number(row.seller_set_price) : null,
@@ -562,6 +565,7 @@ function submissionRowToView(row) {
         statusKey: row.status,
         adminNotes: row.admin_notes || '',
         paidAt: row.paid_at || null,
+        approvedAt: row.approved_at || null,
         createdAt: row.created_at
     };
 }
@@ -582,7 +586,10 @@ function orderRowToView(row) {
         total: Number(row.total),
         status: STATUS_MAP.order[row.status] || row.status,
         statusKey: row.status,
-        date: row.created_at
+        date: row.created_at,
+        sellerPaid: Boolean(row.seller_paid),
+        deliveredAt: row.delivered_at || null,
+        payoutReleasedAt: row.payout_released_at || null
     };
 }
 
@@ -1666,6 +1673,7 @@ function renderCheckoutSummary() {
 
     const fee = AppState.currentOrder.serviceFee;
     const total = AppState.currentOrder.total;
+    const feeWasCapped = AppState.currentOrder.feeWasCapped;
 
     document.getElementById('orderSummary').innerHTML = `
         <h3 style="margin-bottom: 16px; color: var(--navy);">Order Summary</h3>
@@ -1678,9 +1686,10 @@ function renderCheckoutSummary() {
             <span>${formatCurrency(listing.salePrice)}</span>
         </div>
         <div class="summary-row">
-            <span>Service Fee (5%)</span>
+            <span>Service Fee</span>
             <span>${formatCurrency(fee)}</span>
         </div>
+        ${feeWasCapped ? '<p class="fee-capped-note">Maximum service fee applied</p>' : ''}
         <div class="summary-row total">
             <span>Total</span>
             <span>${formatCurrency(total)}</span>
@@ -2306,6 +2315,21 @@ async function handleSubmission() {
     const sellerSetPriceRaw = saleMode === 'marketplace' ? document.getElementById('subSellerPrice').value : null;
     const sellerSetPrice = sellerSetPriceRaw !== null ? Number(sellerSetPriceRaw) : null;
 
+    // Seller history, needed for several of the rules below: new vs
+    // established sellers get different value caps, different daily
+    // submission limits, and different evidence requirements. "Established"
+    // is defined consistently as 5+ approved submissions -- the same bar
+    // used for both the daily-limit tier and the evidence-requirement tier,
+    // rather than two different implicit thresholds.
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const [{ count: approvedCount }, { count: recentCount }, { count: disputeCount }] = await Promise.all([
+        supabaseClient.from('submissions').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).eq('status', 'approved'),
+        supabaseClient.from('submissions').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).gte('created_at', twentyFourHoursAgo).is('deleted_at', null),
+        supabaseClient.from('disputes').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id)
+    ]);
+    const isEstablishedSeller = (approvedCount || 0) >= 5;
+    const isNewSeller = (approvedCount || 0) < 3;
+
     let hasError = false;
     if (!brand) {
         setFieldError('subBrand', 'subBrandError', 'Select which retailer this card is from');
@@ -2336,9 +2360,41 @@ async function handleSubmission() {
         }
     }
 
+    // For brands where we can't programmatically validate the card
+    // number's format (Other, or any brand where the research couldn't
+    // confirm an official length -- see brand_discounts.card_number_length),
+    // OR for a new/unproven seller (fewer than 3 approved submissions, or
+    // any dispute history), require at least some visual evidence instead.
+    // Only skip this when BOTH the brand is well-confirmed AND the seller
+    // is established -- passing brand validation from an established
+    // seller is itself reasonably strong evidence; either condition alone
+    // being weak means evidence is still worth asking for.
+    const evidenceBrandConfig = brand ? AppState.brandDiscounts[brand] : null;
+    const brandFormatUnconfirmed = brand === 'Other' || (evidenceBrandConfig && !evidenceBrandConfig.cardNumberLength);
+    const sellerNeedsEvidence = isNewSeller || (disputeCount || 0) > 0;
+    const needsEvidence = brandFormatUnconfirmed || sellerNeedsEvidence;
+    if (needsEvidence) {
+        const hasReceipt = document.getElementById('subReceipt').files.length > 0;
+        const hasCardPhoto = document.getElementById('subCardPhoto').files.length > 0;
+        if (!hasReceipt && !hasCardPhoto) {
+            const message = brandFormatUnconfirmed
+                ? `We can't automatically verify ${brand} card numbers yet -- please upload a receipt or a photo of the card.`
+                : "Please upload a receipt or a photo of the card -- required for newer sellers, or sellers with a prior dispute.";
+            setFieldError('subReceipt', 'subReceiptError', message);
+            setFieldError('subCardPhoto', 'subCardPhotoError', message);
+            hasError = true;
+        }
+    }
+
     const faceValueCheck = GiftlioPricing.validateFaceValue(valueRaw);
     if (!faceValueCheck.valid) {
         setFieldError('subValue', 'subValueError', faceValueCheck.error);
+        hasError = true;
+    } else if (value < 10) {
+        setFieldError('subValue', 'subValueError', 'Minimum card value is $10.');
+        hasError = true;
+    } else if (value > 500 && isNewSeller) {
+        setFieldError('subValue', 'subValueError', 'Maximum card value for new sellers is $500.');
         hasError = true;
     }
 
@@ -2348,6 +2404,9 @@ async function handleSubmission() {
     const balanceCheck = GiftlioPricing.validateBalance(balanceRaw, faceValueCheck.valid ? value : null);
     if (!balanceCheck.valid) {
         setFieldError('subBalance', 'subBalanceError', balanceCheck.error);
+        hasError = true;
+    } else if (faceValueCheck.valid && balance < value * 0.1) {
+        setFieldError('subBalance', 'subBalanceError', 'Cards must have at least 10% of the original value remaining.');
         hasError = true;
     }
 
@@ -2364,6 +2423,14 @@ async function handleSubmission() {
     if (!expiry) {
         setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date');
         hasError = true;
+    } else {
+        const expiryDate = new Date(expiry);
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        if (expiryDate < thirtyDaysFromNow) {
+            setFieldError('subExpiry', 'subExpiryError', 'Cards must be valid for at least 30 days.');
+            hasError = true;
+        }
     }
     if (!cardNum) {
         setFieldError('subCardNum', 'subCardNumError', 'Enter the gift card number');
@@ -2373,6 +2440,17 @@ async function handleSubmission() {
         document.getElementById('subTermsError').textContent = 'You must confirm this before submitting';
         hasError = true;
     }
+
+    // Daily submission limits, tiered by trust: newer sellers (fewer than
+    // 5 approved submissions) are capped at 3 per day; established sellers
+    // get more room, up to 10 per day. A form-level rule, not tied to any
+    // one field, so it shows as a toast rather than an inline error.
+    const dailyCap = isEstablishedSeller ? 10 : 3;
+    if ((recentCount || 0) >= dailyCap) {
+        showToast('error', 'Daily submission limit reached. Try again tomorrow.');
+        hasError = true;
+    }
+
     if (hasError) return;
 
     let offerAmount;
@@ -2421,6 +2499,25 @@ async function handleSubmission() {
         }
     }
 
+    let cardPhotoStoragePath = null;
+    const cardPhotoFile = document.getElementById('subCardPhoto').files[0];
+    if (cardPhotoFile) {
+        try {
+            const safeName = cardPhotoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `${AppState.currentUser.id}/${Date.now()}-photo-${safeName}`;
+            const { error: uploadError } = await supabaseClient.storage.from('receipts').upload(path, cardPhotoFile, {
+                contentType: cardPhotoFile.type,
+                upsert: false
+            });
+
+            if (uploadError) throw uploadError;
+            cardPhotoStoragePath = path;
+        } catch (uploadError) {
+            console.error('Card photo upload failed:', uploadError);
+            showToast('warning', 'Your card photo could not be uploaded, but the rest of your submission will still go through. You can email it to support@giftlio.co.nz if needed.');
+        }
+    }
+
     try {
         await withLoading(async () => {
             const { error } = await supabaseClient.from('submissions').insert({
@@ -2435,6 +2532,8 @@ async function handleSubmission() {
                 pin: pin || null,
                 receipt_filename: document.getElementById('fileName').textContent || null,
                 receipt_storage_path: receiptStoragePath,
+                card_photo_filename: document.getElementById('cardPhotoFileName').textContent || null,
+                card_photo_storage_path: cardPhotoStoragePath,
                 offer_amount: offerAmount,
                 sale_mode: saleMode,
                 seller_set_price: sellerSetPrice,
@@ -2527,16 +2626,29 @@ async function renderSellerSubmissions() {
             empty.classList.add('hidden');
 
             // Fetch listing status for approved submissions, so the timeline can
-            // honestly show whether Giftlio has since listed/sold the card.
+            // honestly show whether Giftlio has since listed/sold the card --
+            // and, critically, whether the payout has actually been released
+            // (not just whether the card sold/was approved).
             const submissionIds = submissions.map((s) => s.dbId).filter(Boolean);
             let listingBySubmission = {};
             if (submissionIds.length) {
                 const { data: listingRows } = await supabaseClient
                     .from('listings')
-                    .select('submission_id, status')
+                    .select('id, submission_id, status, sale_mode')
                     .in('submission_id', submissionIds);
+
+                const soldMarketplaceListingIds = (listingRows || []).filter((l) => l.sale_mode === 'marketplace' && l.status === 'sold').map((l) => l.id);
+                let sellerPaidByListingId = new Map();
+                if (soldMarketplaceListingIds.length) {
+                    const { data: orderRows } = await supabaseClient.from('orders').select('listing_id, seller_paid').in('listing_id', soldMarketplaceListingIds);
+                    sellerPaidByListingId = new Map((orderRows || []).map((o) => [o.listing_id, o.seller_paid]));
+                }
+
                 (listingRows || []).forEach((l) => {
-                    listingBySubmission[l.submission_id] = l.status;
+                    listingBySubmission[l.submission_id] = {
+                        status: l.status,
+                        payoutReleased: l.sale_mode === 'marketplace' ? sellerPaidByListingId.get(l.id) === true : undefined
+                    };
                 });
             }
 
@@ -2553,13 +2665,21 @@ async function renderSellerSubmissions() {
     }
 }
 
-function renderSubmissionCard(s, listingStatus) {
+function renderSubmissionCard(s, listingInfo) {
+    const listingStatus = listingInfo?.status;
     const isRejected = s.status === 'Rejected';
     const isPending = s.status === 'Pending Review';
     const isApproved = s.status === 'Approved' || s.status === 'Listed' || s.status === 'Sold';
     const isListed = isApproved && Boolean(listingStatus);
     const isSold = listingStatus === 'sold';
     const isMarketplace = s.saleMode === 'marketplace';
+
+    // "Payout Sent" is only genuinely done once the payout was actually
+    // released -- not just because the card was approved (Instant Sell)
+    // or sold (Marketplace). Showing this as complete before the money
+    // actually moved is exactly the misleading-earnings bug this whole
+    // holding-period system exists to fix.
+    const isPayoutReleased = isMarketplace ? listingInfo?.payoutReleased === true : Boolean(s.paidAt);
 
     // The stage ORDER genuinely differs by mode, not just the labels:
     // Instant Sell pays at approval, before the card is even resold, so
@@ -2572,12 +2692,12 @@ function renderSubmissionCard(s, listingStatus) {
               { key: 'verified', label: 'Being Verified', done: !isPending },
               { key: 'listed', label: 'Listed for Sale', done: isListed },
               { key: 'sold', label: 'Sold to Buyer', done: isSold },
-              { key: 'payout', label: 'Payout Sent', done: isSold }
+              { key: 'payout', label: 'Payout Released', done: isPayoutReleased }
           ]
         : [
               { key: 'submitted', label: 'Submitted', done: true },
-              { key: 'verified', label: 'Being Verified', done: !isPending },
-              { key: 'payout', label: 'Payout Sent', done: isApproved },
+              { key: 'verified', label: 'Verified by Giftlio', done: !isPending },
+              { key: 'payout', label: 'Payout Sent', done: isPayoutReleased },
               { key: 'listed', label: 'Listed for Resale', done: isListed },
               { key: 'sold', label: 'Sold to Buyer', done: isSold }
           ];
@@ -2868,31 +2988,82 @@ async function renderSellerEarnings() {
             const submissions = (subData || []).map(submissionRowToView);
             const listings = listingData || [];
 
-            // Instant Sell: earned as soon as approved (paid at that point).
-            const instantEarned = submissions
-                .filter((s) => s.saleMode === 'instant' && ['Listed', 'Sold', 'Approved'].includes(s.status))
-                .reduce((sum, s) => sum + (s.offerAmount || 0), 0);
+            // Need the listing IDs before orders can be fetched -- can't
+            // parallelize this with the query above.
+            const marketplaceListingIds = listings.filter((l) => l.sale_mode === 'marketplace' && l.status === 'sold').map((l) => l.id);
+            let ordersByListingId = new Map();
+            if (marketplaceListingIds.length > 0) {
+                const { data: orderData, error: orderError } = await supabaseClient
+                    .from('orders')
+                    .select('listing_id, seller_paid, delivered_at')
+                    .in('listing_id', marketplaceListingIds);
+                if (orderError) throw orderError;
+                ordersByListingId = new Map((orderData || []).map((o) => [o.listing_id, o]));
+            }
 
-            // Marketplace: only actually earned once the linked listing sells --
-            // being listed is not the same as being paid.
-            const marketplaceEarned = listings
-                .filter((l) => l.sale_mode === 'marketplace' && l.status === 'sold')
-                .reduce((sum, l) => sum + Number(l.seller_payout_amount || 0), 0);
+            const now = Date.now();
 
-            const marketplacePending = listings
-                .filter((l) => l.sale_mode === 'marketplace' && l.status === 'active')
-                .reduce((sum, l) => sum + Number(l.seller_payout_amount || 0), 0);
+            // Instant Sell: only actually earned once paid_at is set --
+            // being approved is not the same as being paid. "Pending" is
+            // approved-but-unpaid regardless of holding period; "available"
+            // is the subset that's already past the 24-hour hold.
+            let instantEarned = 0;
+            let instantPending = 0;
+            let instantAvailable = 0;
+            submissions
+                .filter((s) => s.saleMode === 'instant' && s.statusKey === 'approved')
+                .forEach((s) => {
+                    if (s.paidAt) {
+                        instantEarned += s.offerAmount || 0;
+                        return;
+                    }
+                    instantPending += s.offerAmount || 0;
+                    if (s.approvedAt) {
+                        const unlocksAt = new Date(s.approvedAt).getTime() + INSTANT_SELL_PAYOUT_HOLD_HOURS * 60 * 60 * 1000;
+                        if (now >= unlocksAt) instantAvailable += s.offerAmount || 0;
+                    }
+                });
+
+            // Marketplace: only actually earned once the linked order's
+            // seller_paid is true -- a sold listing alone isn't a payout.
+            let marketplaceEarned = 0;
+            let marketplacePending = 0;
+            let marketplaceAvailable = 0;
+            let marketplaceUnsold = 0;
+            listings
+                .filter((l) => l.sale_mode === 'marketplace')
+                .forEach((l) => {
+                    const payout = Number(l.seller_payout_amount || 0);
+                    if (l.status === 'active') {
+                        marketplaceUnsold += payout;
+                        return;
+                    }
+                    if (l.status !== 'sold') return;
+
+                    const order = ordersByListingId.get(l.id);
+                    if (order?.seller_paid) {
+                        marketplaceEarned += payout;
+                        return;
+                    }
+                    marketplacePending += payout;
+                    if (order?.delivered_at) {
+                        const unlocksAt = new Date(order.delivered_at).getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000;
+                        if (now >= unlocksAt) marketplaceAvailable += payout;
+                    }
+                });
 
             const total = instantEarned + marketplaceEarned;
+            const pending = instantPending + marketplacePending;
+            const available = instantAvailable + marketplaceAvailable;
 
             document.getElementById('earnTotal').textContent = formatCurrency(total);
-            document.getElementById('earnAvailable').textContent = formatCurrency(total);
-            document.getElementById('earnPaid').textContent = '$0.00';
+            document.getElementById('earnPaid').textContent = formatCurrency(pending);
+            document.getElementById('earnAvailable').textContent = formatCurrency(available);
 
             const pendingNote = document.getElementById('earnPendingNote');
             if (pendingNote) {
-                if (marketplacePending > 0) {
-                    pendingNote.textContent = `Plus ${formatCurrency(marketplacePending)} pending from marketplace listings not yet sold`;
+                if (marketplaceUnsold > 0) {
+                    pendingNote.textContent = `Plus ${formatCurrency(marketplaceUnsold)} pending from marketplace listings not yet sold`;
                     pendingNote.classList.remove('hidden');
                 } else {
                     pendingNote.classList.add('hidden');
@@ -3061,6 +3232,8 @@ function switchAdminPage(page) {
         renderInstantPendingTable(pending.filter((s) => s.saleMode !== 'marketplace'));
         renderMarketplacePendingTable(pending.filter((s) => s.saleMode === 'marketplace'));
         renderPendingDeliveryTable(orders.filter((o) => o.statusKey === 'pending_verification'));
+        renderPayoutsAwaitingTable();
+        renderInstantPayoutsAwaitingTable();
         adminPageRenderedOnce.submissions = true;
     } else if (page === 'listings' && !adminPageRenderedOnce.listings) {
         renderFilteredListingsTable(listings);
@@ -3227,6 +3400,200 @@ function renderPendingDeliveryTable(pendingDelivery) {
     `;
 }
 
+const MARKETPLACE_PAYOUT_HOLD_HOURS = 48;
+
+/**
+ * Marketplace payouts awaiting release -- delivered orders where the
+ * seller hasn't been paid yet. The Release Payout button is genuinely
+ * disabled (not just hidden) until 48 hours have passed since delivered_at,
+ * with a live countdown so admin knows exactly when it'll unlock.
+ */
+async function renderPayoutsAwaitingTable() {
+    const table = document.getElementById('payoutsAwaitingTable');
+    const empty = document.getElementById('payoutsAwaitingEmpty');
+    table.innerHTML = renderSkeletonTableRows(4, 6);
+
+    try {
+        const { data: orders, error } = await supabaseClient
+            .from('orders')
+            .select('*, listings(sale_mode, seller_id, seller_name, seller_payout_amount)')
+            .eq('status', 'delivered')
+            .eq('seller_paid', false)
+            .not('delivered_at', 'is', null);
+        if (error) throw error;
+
+        const marketplaceOrders = (orders || []).filter((o) => o.listings?.sale_mode === 'marketplace');
+
+        if (marketplaceOrders.length === 0) {
+            table.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>Order ID</th><th>Seller</th><th>Brand</th><th>Payout Amount</th><th>Delivered</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${marketplaceOrders
+                        .map((o) => {
+                            const deliveredAt = new Date(o.delivered_at);
+                            const unlocksAt = new Date(deliveredAt.getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+                            const isUnlocked = Date.now() >= unlocksAt.getTime();
+                            const hoursLeft = Math.max(0, Math.ceil((unlocksAt.getTime() - Date.now()) / (60 * 60 * 1000)));
+                            return `
+                        <tr>
+                            <td data-label="Order ID">${escapeHtml(o.public_id)}</td>
+                            <td data-label="Seller">${escapeHtml(o.listings?.seller_name || 'Unknown')}</td>
+                            <td data-label="Brand">${escapeHtml(o.brand)}</td>
+                            <td data-label="Payout Amount">${formatCurrency(o.listings?.seller_payout_amount || 0)}</td>
+                            <td data-label="Delivered">${deliveredAt.toLocaleDateString('en-NZ')}</td>
+                            <td data-label="Action">
+                                ${
+                                    isUnlocked
+                                        ? `<button class="btn btn-primary btn-sm" onclick="releaseMarketplacePayout('${o.id}')">Release Payout</button>`
+                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${MARKETPLACE_PAYOUT_HOLD_HOURS} hours after delivery">Unlocks in ${hoursLeft}h</button>`
+                                }
+                            </td>
+                        </tr>
+                    `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load payouts awaiting release.');
+    }
+}
+
+const INSTANT_SELL_PAYOUT_HOLD_HOURS = 24;
+
+/**
+ * Instant Sell payouts awaiting release -- approved submissions where
+ * paid_at is still null. Same 24-hour genuine time-gate pattern as the
+ * marketplace table above, using approved_at (approval IS the
+ * verification step in this flow, there's no separate "verified" state).
+ */
+async function renderInstantPayoutsAwaitingTable() {
+    const table = document.getElementById('instantPayoutsAwaitingTable');
+    const empty = document.getElementById('instantPayoutsAwaitingEmpty');
+    table.innerHTML = renderSkeletonTableRows(4, 5);
+
+    try {
+        const { data: subs, error } = await supabaseClient
+            .from('submissions')
+            .select('*')
+            .eq('status', 'approved')
+            .eq('sale_mode', 'instant')
+            .is('paid_at', null)
+            .not('approved_at', 'is', null);
+        if (error) throw error;
+
+        if (!subs || subs.length === 0) {
+            table.innerHTML = '';
+            empty.classList.remove('hidden');
+            return;
+        }
+        empty.classList.add('hidden');
+
+        table.innerHTML = `
+            <table>
+                <thead><tr><th>Submission ID</th><th>Seller</th><th>Brand</th><th>Payout Amount</th><th>Approved</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${subs
+                        .map((s) => {
+                            const approvedAt = new Date(s.approved_at);
+                            const unlocksAt = new Date(approvedAt.getTime() + INSTANT_SELL_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+                            const isUnlocked = Date.now() >= unlocksAt.getTime();
+                            const hoursLeft = Math.max(0, Math.ceil((unlocksAt.getTime() - Date.now()) / (60 * 60 * 1000)));
+                            return `
+                        <tr>
+                            <td data-label="Submission ID">${escapeHtml(s.public_id)}</td>
+                            <td data-label="Seller">${escapeHtml(s.seller_name)}</td>
+                            <td data-label="Brand">${escapeHtml(s.brand)}</td>
+                            <td data-label="Payout Amount">${formatCurrency(s.offer_amount)}</td>
+                            <td data-label="Approved">${approvedAt.toLocaleDateString('en-NZ')}</td>
+                            <td data-label="Action">
+                                ${
+                                    isUnlocked
+                                        ? `<button class="btn btn-primary btn-sm" onclick="markSubmissionPaid('${s.id}')">Mark as Paid</button>`
+                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${INSTANT_SELL_PAYOUT_HOLD_HOURS} hours after approval">Unlocks in ${hoursLeft}h</button>`
+                                }
+                            </td>
+                        </tr>
+                    `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        showError(error, 'Unable to load payouts awaiting release.');
+    }
+}
+
+async function releaseMarketplacePayout(orderDbId) {
+    try {
+        const { data: order } = await supabaseClient
+            .from('orders')
+            .select('*, listings(seller_id, seller_name, seller_payout_amount, brand)')
+            .eq('id', orderDbId)
+            .single();
+
+        if (!order) throw new Error('Order not found.');
+
+        const deliveredAt = new Date(order.delivered_at);
+        const unlocksAt = new Date(deliveredAt.getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+        if (Date.now() < unlocksAt.getTime()) {
+            showToast('warning', 'This payout is still within its 48-hour holding period.');
+            return;
+        }
+
+        showConfirmModal({
+            title: 'Release Payout',
+            message: `Confirm ${formatCurrency(order.listings?.seller_payout_amount || 0)} has been paid to ${order.listings?.seller_name || 'this seller'}?`,
+            confirmLabel: 'Confirm Released',
+            onConfirm: async () => {
+                try {
+                    await withLoading(async () => {
+                        const { error } = await supabaseClient
+                            .from('orders')
+                            .update({ seller_paid: true, payout_released_at: new Date().toISOString() })
+                            .eq('id', orderDbId)
+                            .eq('seller_paid', false); // idempotency guard, same pattern as elsewhere
+                        if (error) throw error;
+                    });
+
+                    await logAdminAction('release_marketplace_payout', 'order', orderDbId, order.listings?.brand, {
+                        seller: order.listings?.seller_name,
+                        amount: order.listings?.seller_payout_amount
+                    });
+
+                    if (order.listings?.seller_id) {
+                        await notifySeller(
+                            order.listings.seller_id,
+                            `Your payout for ${order.listings.brand} has been sent`,
+                            `<p>Hi ${escapeHtml(order.listings.seller_name || '')},</p>
+                             <p>Your payout of <strong>${formatCurrency(order.listings.seller_payout_amount || 0)}</strong> for your ${escapeHtml(order.listings.brand)} card has been sent.</p>
+                             <p>Thanks for selling with Giftlio!</p>`,
+                            'marketplace_payout_released',
+                            orderDbId
+                        );
+                    }
+
+                    showToast('success', 'Payout released.');
+                    renderAdmin();
+                } catch (error) {
+                    showError(error, 'Unable to release this payout.');
+                }
+            }
+        });
+    } catch (error) {
+        showError(error, 'Unable to load this order.');
+    }
+}
+
 /**
  * Dashboard summary cards -- six metrics, each clickable and navigating to
  * the relevant detailed page. Called on dashboard load and again on a
@@ -3370,6 +3737,28 @@ async function viewReceipt(storagePath) {
     }
 }
 
+/**
+ * Compact icon row for the admin pending tables, showing at a glance which
+ * evidence files a submission actually has -- a filled icon is clickable
+ * and opens that file (signed URL); a faded icon means that file is
+ * missing. Same underlying viewReceipt() works for both, since receipts
+ * and card photos both live in the same private bucket.
+ */
+function renderEvidenceIcons(s) {
+    const receiptIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+    const photoIcon = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>`;
+
+    const receiptEl = s.receiptStoragePath
+        ? `<button class="evidence-icon present" title="View receipt" aria-label="View receipt" onclick="viewReceipt('${escapeJsString(s.receiptStoragePath)}')">${receiptIcon}</button>`
+        : `<span class="evidence-icon absent" title="No receipt uploaded">${receiptIcon}</span>`;
+
+    const photoEl = s.cardPhotoStoragePath
+        ? `<button class="evidence-icon present" title="View card photo" aria-label="View card photo" onclick="viewReceipt('${escapeJsString(s.cardPhotoStoragePath)}')">${photoIcon}</button>`
+        : `<span class="evidence-icon absent" title="No card photo uploaded">${photoIcon}</span>`;
+
+    return `<span class="evidence-icons">${receiptEl}${photoEl}</span>`;
+}
+
 function renderInstantPendingTable(freshData) {
     if (freshData) AppState.instantPendingRaw = freshData;
     const all = AppState.instantPendingRaw || [];
@@ -3427,7 +3816,7 @@ function renderInstantPendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Approve</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
-                            ${s.receiptStoragePath ? `<button class="btn btn-outline btn-sm" onclick="viewReceipt('${escapeJsString(s.receiptStoragePath)}')">View Receipt</button>` : ''}
+                            ${renderEvidenceIcons(s)}
                         </td>
                     </tr>
                 `
@@ -3502,7 +3891,7 @@ function renderMarketplacePendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Verify &amp; List</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
-                            ${s.receiptStoragePath ? `<button class="btn btn-outline btn-sm" onclick="viewReceipt('${escapeJsString(s.receiptStoragePath)}')">View Receipt</button>` : ''}
+                            ${renderEvidenceIcons(s)}
                         </td>
                     </tr>
                 `
@@ -4306,6 +4695,7 @@ async function renderBrandDiscountsTable() {
                         <th>Brand</th>
                         <th>Current Discount</th>
                         <th>New Discount (0-25%)</th>
+                        <th>Giftlio Resale Markup (0-25%)</th>
                         <th>Retailer Enabled</th>
                         <th>Instant Sell Only</th>
                         <th>Validation Confidence</th>
@@ -4317,9 +4707,11 @@ async function renderBrandDiscountsTable() {
                         .map((brand) => {
                             const config = discounts[brand];
                             const current = config ? config.discountPercent : null;
+                            const currentMarkup = config ? config.resaleMarkupPercent : 0;
                             const isAvailable = config ? config.instantSellAvailable : true;
                             const isEnabled = config ? config.retailerEnabled : true;
                             const inputId = `brandDiscountInput-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
+                            const markupInputId = `brandMarkupInput-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const checkboxId = `brandAvailable-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const enabledId = `brandEnabled-${brand.replace(/[^a-zA-Z0-9]/g, '')}`;
                             const errorId = `${inputId}Error`;
@@ -4332,6 +4724,9 @@ async function renderBrandDiscountsTable() {
                                 <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current !== null ? current : ''}" placeholder="0-25" style="width: 90px;">
                                 <span class="error-msg" id="${errorId}"></span>
                             </td>
+                            <td data-label="Giftlio Resale Markup" title="Instant Sell only. The seller is still paid the full discounted rate above -- this is the EXTRA gap between what the seller receives and what the resale listing sells for. Marketplace listings are never affected; sellers there always set their own price.">
+                                <input type="number" id="${markupInputId}" min="0" max="25" step="1" value="${currentMarkup}" placeholder="0-25" style="width: 90px;">
+                            </td>
                             <td data-label="Retailer Enabled">
                                 <label class="checkbox-group" style="margin:0;" title="Whole-retailer kill switch -- blocks both buying and selling this retailer app-wide when off."><input type="checkbox" id="${enabledId}" ${isEnabled ? 'checked' : ''}> Enabled</label>
                             </td>
@@ -4340,7 +4735,7 @@ async function renderBrandDiscountsTable() {
                             </td>
                             <td data-label="Validation Confidence"><span class="badge ${confidenceBadge}">${(config?.confidenceLevel || 'low').toUpperCase()}</span></td>
                             <td data-label="Actions">
-                                <button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}')">Save</button>
+                                <button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}', '${markupInputId}')">Save</button>
                                 <button class="btn btn-outline btn-sm" onclick="openValidationRulesModal('${escapeJsString(brand)}')">Edit Card/PIN Rules</button>
                             </td>
                         </tr>
@@ -4355,11 +4750,12 @@ async function renderBrandDiscountsTable() {
     }
 }
 
-async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId) {
+async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId, markupInputId) {
     const input = document.getElementById(inputId);
     const errorEl = document.getElementById(errorId);
     const checkbox = document.getElementById(checkboxId);
     const enabledCheckbox = document.getElementById(enabledId);
+    const markupInput = markupInputId ? document.getElementById(markupInputId) : null;
     errorEl.textContent = '';
     input.classList.remove('field-error');
 
@@ -4377,6 +4773,18 @@ async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId)
         return;
     }
 
+    let markup = 0;
+    if (markupInput) {
+        const markupRaw = markupInput.value;
+        markup = markupRaw === '' ? 0 : Number(markupRaw);
+        if (Number.isNaN(markup) || !Number.isFinite(markup) || markup < 0 || markup > 25) {
+            markupInput.classList.add('field-error');
+            showToast('warning', 'Giftlio resale markup must be between 0 and 25.');
+            return;
+        }
+        markupInput.classList.remove('field-error');
+    }
+
     const instantSellAvailable = checkbox.checked;
     const retailerEnabled = enabledCheckbox.checked;
 
@@ -4384,15 +4792,32 @@ async function saveBrandDiscount(brand, inputId, errorId, checkboxId, enabledId)
         const { error } = await supabaseClient
             .from('brand_discounts')
             .upsert(
-                { brand, discount_percent: num, instant_sell_available: instantSellAvailable, retailer_enabled: retailerEnabled, updated_at: new Date().toISOString() },
+                {
+                    brand,
+                    discount_percent: num,
+                    resale_markup_percent: markup,
+                    instant_sell_available: instantSellAvailable,
+                    retailer_enabled: retailerEnabled,
+                    updated_at: new Date().toISOString()
+                },
                 { onConflict: 'brand' }
             );
 
         if (error) throw error;
 
-        AppState.brandDiscounts[brand] = { discountPercent: num, instantSellAvailable, retailerEnabled };
-        await logAdminAction('update_brand_discount', 'brand', null, brand, { discountPercent: num, instantSellAvailable, retailerEnabled });
-        showToast('success', `${brand} updated: ${num}% discount, ${instantSellAvailable ? 'available' : 'hidden'} for Instant Sell. Applies immediately.`);
+        // Merge rather than overwrite -- this brand's AppState entry also
+        // holds the card/PIN validation rules (format, length, confidence,
+        // etc.), which a plain overwrite here would silently wipe out
+        // until the next full page reload.
+        AppState.brandDiscounts[brand] = {
+            ...AppState.brandDiscounts[brand],
+            discountPercent: num,
+            resaleMarkupPercent: markup,
+            instantSellAvailable,
+            retailerEnabled
+        };
+        await logAdminAction('update_brand_discount', 'brand', null, brand, { discountPercent: num, resaleMarkupPercent: markup, instantSellAvailable, retailerEnabled });
+        showToast('success', `${brand} updated: ${num}% discount, ${markup}% resale markup, ${instantSellAvailable ? 'available' : 'hidden'} for Instant Sell. Applies immediately.`);
         await renderBrandDiscountsTable();
     } catch (error) {
         showError(error, 'Unable to save this discount.');
@@ -4481,7 +4906,19 @@ async function approveSubmission(submissionDbId) {
                 sellerPayoutAmount = Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2));
             } else {
                 const brandConfig = AppState.brandDiscounts[sub.brand];
-                const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, brandConfig ? brandConfig.discountPercent : undefined);
+                // The seller's payout (sub.offerAmount, already calculated
+                // and promised to them at submission time) uses ONLY
+                // discount_percent and is never touched here. The LISTING
+                // price is a SEPARATE calculation using a smaller effective
+                // discount (discount_percent minus resale_markup_percent),
+                // so buyers pay closer to face value than what the seller
+                // received -- that gap is Giftlio's margin on owned
+                // inventory. A markup of 0 (the default) reproduces the
+                // old behaviour exactly: listing price == seller payout.
+                const rawDiscount = brandConfig ? brandConfig.discountPercent : undefined;
+                const markup = brandConfig ? brandConfig.resaleMarkupPercent : 0;
+                const effectiveListingDiscount = typeof rawDiscount === 'number' ? Math.max(0, rawDiscount - markup) : rawDiscount;
+                const priced = GiftlioPricing.calculateSalePrice(listingFaceValue, effectiveListingDiscount);
                 if (priced.error) {
                     throw new Error(`Cannot approve: ${sub.brand} has no discount percentage configured. Set one in Brand Discounts first.`);
                 }
@@ -4804,7 +5241,15 @@ async function toggleSellerSuspension(sellerId, sellerName, currentlySuspended) 
  * approval, so this action is really for Marketplace mode.
  */
 async function markSubmissionPaid(submissionDbId) {
-    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name, seller_id, offer_amount').eq('id', submissionDbId).single();
+    const { data: sub } = await supabaseClient.from('submissions').select('brand, public_id, seller_name, seller_id, offer_amount, approved_at').eq('id', submissionDbId).single();
+
+    if (sub?.approved_at) {
+        const unlocksAt = new Date(new Date(sub.approved_at).getTime() + INSTANT_SELL_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+        if (Date.now() < unlocksAt.getTime()) {
+            showToast('warning', 'This payout is still within its 24-hour holding period.');
+            return;
+        }
+    }
 
     showConfirmModal({
         title: 'Mark as Paid',
@@ -4813,7 +5258,7 @@ async function markSubmissionPaid(submissionDbId) {
         onConfirm: async () => {
             try {
                 await withLoading(async () => {
-                    const { error } = await supabaseClient.from('submissions').update({ paid_at: new Date().toISOString() }).eq('id', submissionDbId);
+                    const { error } = await supabaseClient.from('submissions').update({ paid_at: new Date().toISOString() }).eq('id', submissionDbId).is('paid_at', null);
                     if (error) throw error;
                 });
                 await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
@@ -4885,36 +5330,41 @@ async function rejectSubmission(submissionDbId) {
 }
 
 async function deliverOrder(orderDbId) {
-    if (!confirm('Send the gift card details to the buyer by email now?')) return;
+    showConfirmModal({
+        title: 'Deliver Gift Card',
+        message: 'Send the gift card details to the buyer by email now?',
+        confirmLabel: 'Send Now',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const {
+                        data: { session },
+                        error: sessionError
+                    } = await supabaseClient.auth.getSession();
 
-    try {
-        await withLoading(async () => {
-            const {
-                data: { session },
-                error: sessionError
-            } = await supabaseClient.auth.getSession();
+                    if (sessionError) throw sessionError;
+                    if (!session) throw new Error('Your session has expired. Please log in again.');
 
-            if (sessionError) throw sessionError;
-            if (!session) throw new Error('Your session has expired. Please log in again.');
+                    const response = await fetch('/api/deliver-order', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${session.access_token}`
+                        },
+                        body: JSON.stringify({ orderId: orderDbId })
+                    });
 
-            const response = await fetch('/api/deliver-order', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`
-                },
-                body: JSON.stringify({ orderId: orderDbId })
-            });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Unable to deliver this order.');
+                });
 
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Unable to deliver this order.');
-        });
-
-        showToast('success', 'Gift card details have been emailed to the buyer.');
-        renderAdmin();
-    } catch (error) {
-        showError(error, 'Unable to deliver this order.');
-    }
+                showToast('success', 'Gift card details have been emailed to the buyer.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to deliver this order.');
+            }
+        }
+    });
 }
 
 function closeModal() {
@@ -5111,6 +5561,36 @@ function setupEventListeners() {
             fileNameEl.textContent = '';
             this.value = '';
             if (errorEl) errorEl.textContent = 'Only JPG, PNG, or PDF files are accepted.';
+            return;
+        }
+
+        fileNameEl.textContent = file.name;
+    });
+
+    document.getElementById('subCardPhoto')?.addEventListener('change', function () {
+        const file = this.files[0];
+        const fileNameEl = document.getElementById('cardPhotoFileName');
+        const errorEl = document.getElementById('subCardPhotoError');
+        if (errorEl) errorEl.textContent = '';
+
+        if (!file) {
+            fileNameEl.textContent = '';
+            return;
+        }
+
+        const maxSizeBytes = 5 * 1024 * 1024;
+        const allowedTypes = ['image/jpeg', 'image/png'];
+
+        if (file.size > maxSizeBytes) {
+            fileNameEl.textContent = '';
+            this.value = '';
+            if (errorEl) errorEl.textContent = `File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`;
+            return;
+        }
+        if (!allowedTypes.includes(file.type)) {
+            fileNameEl.textContent = '';
+            this.value = '';
+            if (errorEl) errorEl.textContent = 'Only JPG or PNG files are accepted.';
             return;
         }
 
