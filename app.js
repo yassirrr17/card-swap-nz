@@ -4422,6 +4422,7 @@ function approveSubmissionGuarded(button, submissionDbId) {
 }
 
 async function approveSubmission(submissionDbId) {
+    let sub;
     try {
         await withLoading(async () => {
             const { data: subData, error: subError } = await supabaseClient
@@ -4443,7 +4444,7 @@ async function approveSubmission(submissionDbId) {
                 return;
             }
 
-            const sub = submissionRowToView(subData);
+            sub = submissionRowToView(subData);
             const listingFaceValue = sub.currentBalance;
 
             // Defense in depth: re-validate the balance here too, not just
@@ -4560,6 +4561,11 @@ async function approveSubmission(submissionDbId) {
 
             if (updateError) throw updateError;
         });
+
+        // The early-return above (already-processed case) never assigns
+        // sub -- if that path fired, there's nothing further to log or
+        // notify about, it already showed its own toast and refreshed.
+        if (!sub) return;
 
         invalidateListingsCache();
 
