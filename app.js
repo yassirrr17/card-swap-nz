@@ -5171,10 +5171,38 @@ function showUpdateAvailableBanner() {
     banner.className = 'update-available-banner';
     banner.innerHTML = `
         <span>A new version of Giftlio is available.</span>
-        <button class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+        <button class="btn btn-primary btn-sm" onclick="forceFreshReload(this)">Refresh</button>
         <button class="update-banner-dismiss" aria-label="Dismiss" onclick="this.closest('.update-available-banner').remove()">×</button>
     `;
     document.body.appendChild(banner);
+}
+
+/**
+ * Does exactly what the manual "DevTools -> unregister service worker ->
+ * clear site data" process does, automatically, in one click: deletes
+ * every cache this origin has, unregisters every service worker
+ * registration, then hard-reloads. This is the nuclear option -- it
+ * doesn't rely on any particular caching strategy being correct, it just
+ * removes everything that could possibly be stale before reloading.
+ */
+async function forceFreshReload(button) {
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Refreshing...';
+    }
+    try {
+        if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map((reg) => reg.unregister()));
+        }
+    } catch (error) {
+        console.error('Error clearing caches/service worker before reload:', error);
+    }
+    window.location.reload();
 }
 
 function isStandalone() {
