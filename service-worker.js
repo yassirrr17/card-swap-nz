@@ -75,7 +75,12 @@ function isNavigationRequest(request) {
 
 async function networkFirst(request, cacheName, fallbackUrl) {
   try {
-    const response = await fetch(request);
+    // cache: 'no-store' forces this fetch to bypass the browser's own HTTP
+    // cache entirely, regardless of what Cache-Control headers come back.
+    // Relying on response headers alone means correctness depends on the
+    // browser AND Vercel's CDN both honoring them everywhere -- this
+    // removes that dependency for at least the browser's own cache layer.
+    const response = await fetch(request, { cache: 'no-store' });
     const cache = await caches.open(cacheName);
     cache.put(request, response.clone());
     return response;
