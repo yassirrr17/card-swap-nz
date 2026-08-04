@@ -175,14 +175,40 @@ console.log('\n--- calculateCheckoutTotal ---');
 
 assertEqual(
     GiftlioPricing.calculateCheckoutTotal(100),
-    { serviceFee: 5, total: 105 },
-    '$100 sale price -> $5 service fee, $105 total'
+    { serviceFee: 5, total: 105, feeWasCapped: false },
+    '$100 sale price -> $5 service fee, $105 total, not capped either direction'
 );
 
 assertEqual(
     GiftlioPricing.calculateCheckoutTotal(21.25),
-    { serviceFee: 1.06, total: 22.31 },
+    { serviceFee: 1.06, total: 22.31, feeWasCapped: false },
     '$21.25 sale price -> correct fee and total, matches the partial-balance case above'
+);
+
+console.log('\n--- calculateCheckoutTotal: $1 minimum and $15 maximum cap ---');
+
+assertEqual(
+    GiftlioPricing.calculateCheckoutTotal(10),
+    { serviceFee: 1, total: 11, feeWasCapped: false },
+    '$10 card: raw 5% would be $0.50, floored up to the $1 minimum -- not flagged as "capped" since that flag is specifically for the $15 ceiling'
+);
+
+assertEqual(
+    GiftlioPricing.calculateCheckoutTotal(500),
+    { serviceFee: 15, total: 515, feeWasCapped: true },
+    '$500 card: raw 5% would be $25, capped down to $15 -- feeWasCapped true so the UI can show "Maximum service fee applied"'
+);
+
+assertEqual(
+    GiftlioPricing.calculateCheckoutTotal(300),
+    { serviceFee: 15, total: 315, feeWasCapped: false },
+    '$300 card: raw 5% is exactly $15 -- lands right at the ceiling without needing to be reduced, so NOT flagged as capped (that flag means "would have been higher than $15 if uncapped")'
+);
+
+assertEqual(
+    GiftlioPricing.calculateCheckoutTotal(301),
+    { serviceFee: 15, total: 316, feeWasCapped: true },
+    '$301 card: raw 5% is $15.05, genuinely over the ceiling -- correctly capped to $15 and flagged'
 );
 
 console.log('\n--- Reported bug regression test: Woolworths at 10%, balance $80 ---');
