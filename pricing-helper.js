@@ -127,9 +127,11 @@ const GiftlioPricing = (function () {
      */
     function calculateCheckoutTotal(salePrice) {
         const price = Number(salePrice) || 0;
-        const serviceFee = Math.round(price * SERVICE_FEE_RATE * 100) / 100;
+        const rawFee = price * SERVICE_FEE_RATE;
+        const serviceFee = Math.round(Math.max(1, Math.min(15, rawFee)) * 100) / 100;
+        const feeWasCapped = rawFee > 15;
         const total = Math.round((price + serviceFee) * 100) / 100;
-        return { serviceFee, total };
+        return { serviceFee, total, feeWasCapped };
     }
 
     return {
