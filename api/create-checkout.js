@@ -93,7 +93,8 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'This price is no longer valid. Please refresh the listing and try again.' });
         }
 
-        const verifiedFee = Math.round(verifiedPrice * 0.05 * 100) / 100;
+        const rawFee = verifiedPrice * 0.05;
+        const verifiedFee = Math.round(Math.max(1, Math.min(15, rawFee)) * 100) / 100;
         const verifiedTotal = Math.round((verifiedPrice + verifiedFee) * 100) / 100;
 
         const origin = req.headers.origin || `https://${req.headers.host}`;
@@ -117,7 +118,7 @@ module.exports = async function handler(req, res) {
                 {
                     price_data: {
                         currency: 'nzd',
-                        product_data: { name: 'Service Fee (5%)' },
+                        product_data: { name: 'Service Fee' },
                         unit_amount: Math.round(verifiedFee * 100)
                     },
                     quantity: 1
