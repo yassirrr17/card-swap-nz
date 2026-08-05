@@ -1045,7 +1045,7 @@ function renderListingCard(listing) {
                     <span class="gst-note">GST included</span>
                 </div>
                 <div class="listing-seller-verified">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}${infoTooltip}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}${listing.cardsSold > 0 ? ` · ${listing.cardsSold} card${listing.cardsSold === 1 ? '' : 's'} sold` : ''}${infoTooltip}
                 </div>
                 ${buyButton}
             </div>
@@ -1138,12 +1138,25 @@ async function renderHome() {
     // finds after clicking can never disagree with each other.
     const activeListings = await getActiveListings();
     const bestDiscountByBrand = {};
+    let overallBestDiscount = null;
     activeListings.forEach((listing) => {
         const current = bestDiscountByBrand[listing.brand];
         if (current === undefined || listing.discount > current) {
             bestDiscountByBrand[listing.brand] = listing.discount;
         }
+        if (overallBestDiscount === null || listing.discount > overallBestDiscount) {
+            overallBestDiscount = listing.discount;
+        }
     });
+
+    // Only claim a specific percentage in the hero once there's real,
+    // currently-live inventory to back it up -- the static fallback text
+    // (set in the HTML) is deliberately generic and true regardless, so
+    // there's never a moment where this headline overstates reality.
+    const heroSubtitle = document.getElementById('heroSubtitle');
+    if (heroSubtitle && typeof overallBestDiscount === 'number') {
+        heroSubtitle.textContent = `NZ owned and operated — save up to ${overallBestDiscount}% on your favourite NZ brands`;
+    }
 
     const brandsGrid = document.getElementById('brandsGrid');
     brandsGrid.innerHTML = brands
