@@ -133,7 +133,7 @@ function subscribeToBrandDiscountChanges() {
 async function loadBrandDiscounts() {
     const { data, error } = await supabaseClient
         .from('brand_discounts')
-        .select('brand, discount_percent, resale_markup_percent, instant_sell_available, retailer_enabled, card_number_length, card_number_length_alt, card_number_format, pin_length, pin_required, confidence_level, validation_source, validation_notes');
+        .select('brand, discount_percent, resale_markup_percent, instant_sell_available, retailer_enabled, card_number_length, card_number_length_alt, card_number_format, pin_length, pin_required, confidence_level, validation_source, validation_notes, brand_color, brand_color_secondary, brand_text_color');
     if (error) {
         console.error('Failed to load brand discounts:', error);
         return AppState.brandDiscounts;
@@ -161,7 +161,10 @@ async function loadBrandDiscounts() {
             pinRequired: row.pin_required === true,
             confidenceLevel: row.confidence_level || 'low',
             validationSource: row.validation_source || '',
-            validationNotes: row.validation_notes || ''
+            validationNotes: row.validation_notes || '',
+            brandColor: row.brand_color || null,
+            brandColorSecondary: row.brand_color_secondary || null,
+            brandTextColor: row.brand_text_color || null
         };
     });
     AppState.brandDiscounts = map;
@@ -334,23 +337,11 @@ const CATEGORIES = {
     }
 };
 
-const BRAND_COLORS = {
-    'The Warehouse': '#E4002B',
-    Woolworths: '#1B7339',
-    'New World': '#00843d',
-    Farmers: '#E6007E',
-    'Noel Leeming': '#0033a0',
-    Briscoes: '#e31837',
-    'Rebel Sport': '#1a1a1a',
-    'PB Tech': '#ff6600',
-    "Pak'nSave": '#FFD100'
-};
-
-// Pak'nSave is yellow-and-black, not yellow-and-white -- badge text color
-// needs to flip for this one brand so it's actually readable/on-brand.
-const BRAND_TEXT_COLORS = {
-    "Pak'nSave": '#000000'
-};
+// The full list of retailers Giftlio supports. Deliberately separate from
+// colors now -- colors are admin-configured, live in brand_discounts, and
+// load into AppState.brandDiscounts via loadBrandDiscounts(); this is just
+// "which brands exist," which doesn't change based on admin color settings.
+const SUPPORTED_BRANDS = ['The Warehouse', 'Woolworths', "Pak'nSave", 'New World', 'Farmers', 'Noel Leeming', 'Briscoes', 'Rebel Sport', 'PB Tech'];
 
 /**
  * Renders a retailer badge: bold retailer name on their real brand color.
@@ -362,8 +353,21 @@ const BRAND_TEXT_COLORS = {
  */
 function retailerBadgeHTML(brand) {
     const safeBrand = escapeHtml(brand);
-    const color = BRAND_COLORS[brand] || '#10142E';
-    const textColor = BRAND_TEXT_COLORS[brand] || '#ffffff';
+    const config = AppState.brandDiscounts[brand];
+    const color = config?.brandColor || '#10142E';
+    const secondaryColor = config?.brandColorSecondary || null;
+    const textColor = config?.brandTextColor || '#ffffff';
+
+    if (secondaryColor) {
+        // Split-color badge (e.g. New World's red/white). The outer pill
+        // shows a genuine diagonal split of both brand colors; the text
+        // itself sits in its own small dark backing chip so it stays
+        // legible regardless of which color it crosses -- a literal
+        // split background directly behind text risks becoming unreadable
+        // wherever the two colors meet.
+        return `<span class="retailer-badge retailer-badge-split" style="background:linear-gradient(135deg, ${color} 50%, ${secondaryColor} 50%)"><span class="retailer-badge-split-label">${safeBrand}</span></span>`;
+    }
+
     return `<span class="retailer-badge" style="background:${color};color:${textColor}">${safeBrand}</span>`;
 }
 
@@ -1123,17 +1127,20 @@ async function renderHome() {
         })
         .join('');
 
-    const brands = ['The Warehouse', 'Woolworths', "Pak'nSave", 'New World', 'Farmers', 'Noel Leeming', 'Briscoes', 'Rebel Sport', 'PB Tech'];
+    const brands = SUPPORTED_BRANDS;
+    await loadBrandDiscounts();
     const brandsGrid = document.getElementById('brandsGrid');
     brandsGrid.innerHTML = brands
-        .map(
-            (b) => `
+        .map((b) => {
+            const config = AppState.brandDiscounts[b];
+            const discountLabel = config && typeof config.discountPercent === 'number' ? `Up to ${config.discountPercent}% off` : 'Rate set at submission';
+            return `
         <div class="brand-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(b)} gift cards" onclick="filterByBrand('${escapeJsString(b)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByBrand('${escapeJsString(b)}');}">
             ${retailerBadgeHTML(b)}
-            <p>Up to 20% off</p>
+            <p>${escapeHtml(discountLabel)}</p>
         </div>
-    `
-        )
+    `;
+        })
         .join('');
 
     // Show skeletons immediately so the page never looks blank while data loads
@@ -1963,7 +1970,7 @@ function populateBrandDropdown() {
 
     const mode = getSelectedSaleMode();
     const previousValue = select.value;
-    const allBrands = Object.keys(BRAND_COLORS).sort();
+    const allBrands = SUPPORTED_BRANDS.slice().sort();
 
     const isUnavailable = (brand) => {
         const config = AppState.brandDiscounts[brand];
@@ -4693,6 +4700,103 @@ function exportAuditLogCsv() {
  * server-side trigger read from -- so a rule change here takes effect
  * everywhere immediately, no code changes needed.
  */
+/**
+ * Opens the branding editor for a single brand. The preview updates live
+ * as colors change, using the exact same retailerBadgeHTML() function
+ * that renders everywhere else in the app -- what admin sees in this
+ * modal is genuinely what customers will see, not an approximation.
+ */
+let currentBrandingEditTarget = null;
+
+function openBrandingModal(brand) {
+    currentBrandingEditTarget = brand;
+    const config = AppState.brandDiscounts[brand] || {};
+    document.getElementById('brandingTitle').textContent = `${brand} — Branding`;
+    document.getElementById('bColor').value = config.brandColor || '#10142E';
+    document.getElementById('bTextColor').value = config.brandTextColor || '#ffffff';
+    document.getElementById('bUseSplit').checked = Boolean(config.brandColorSecondary);
+    document.getElementById('bSecondaryColor').value = config.brandColorSecondary || '#FFFFFF';
+    toggleSplitColorInput();
+    updateBrandingPreview();
+
+    document.getElementById('bSaveBtn').onclick = saveBranding;
+
+    document.getElementById('brandingOverlay').classList.remove('hidden');
+    document.getElementById('brandingModal').classList.remove('hidden');
+}
+
+function closeBrandingModal() {
+    currentBrandingEditTarget = null;
+    document.getElementById('brandingOverlay').classList.add('hidden');
+    document.getElementById('brandingModal').classList.add('hidden');
+}
+
+function toggleSplitColorInput() {
+    const useSplit = document.getElementById('bUseSplit').checked;
+    document.getElementById('bSecondaryColorGroup').classList.toggle('hidden', !useSplit);
+}
+
+/**
+ * Renders a live preview using a TEMPORARY override on AppState, then
+ * restores the real value immediately after -- this reuses the actual
+ * retailerBadgeHTML() function instead of duplicating its rendering
+ * logic, so the preview can never drift out of sync with reality.
+ */
+function updateBrandingPreview() {
+    if (!currentBrandingEditTarget) return;
+    const useSplit = document.getElementById('bUseSplit').checked;
+    const originalConfig = AppState.brandDiscounts[currentBrandingEditTarget];
+
+    AppState.brandDiscounts[currentBrandingEditTarget] = {
+        ...originalConfig,
+        brandColor: document.getElementById('bColor').value,
+        brandTextColor: document.getElementById('bTextColor').value,
+        brandColorSecondary: useSplit ? document.getElementById('bSecondaryColor').value : null
+    };
+
+    document.getElementById('brandingPreviewWrap').innerHTML = retailerBadgeHTML(currentBrandingEditTarget);
+
+    AppState.brandDiscounts[currentBrandingEditTarget] = originalConfig;
+}
+
+async function saveBranding() {
+    const brand = currentBrandingEditTarget;
+    if (!brand) return;
+
+    const color = document.getElementById('bColor').value;
+    const textColor = document.getElementById('bTextColor').value;
+    const useSplit = document.getElementById('bUseSplit').checked;
+    const secondaryColor = useSplit ? document.getElementById('bSecondaryColor').value : null;
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient
+                .from('brand_discounts')
+                .update({
+                    brand_color: color,
+                    brand_text_color: textColor,
+                    brand_color_secondary: secondaryColor
+                })
+                .eq('brand', brand);
+            if (error) throw error;
+        });
+
+        AppState.brandDiscounts[brand] = {
+            ...AppState.brandDiscounts[brand],
+            brandColor: color,
+            brandTextColor: textColor,
+            brandColorSecondary: secondaryColor
+        };
+
+        await logAdminAction('update_brand_branding', 'brand', null, brand, { color, textColor, secondaryColor });
+        showToast('success', `${brand} branding updated. Applies immediately everywhere.`);
+        closeBrandingModal();
+        await renderBrandDiscountsTable();
+    } catch (error) {
+        showError(error, 'Unable to save branding.');
+    }
+}
+
 function openValidationRulesModal(brand) {
     const rules = AppState.brandDiscounts[brand] || {};
     document.getElementById('validationRulesTitle').textContent = `${brand} — Card/PIN Rules`;
@@ -4761,13 +4865,14 @@ async function renderBrandDiscountsTable() {
 
     try {
         const discounts = await loadBrandDiscounts();
-        const allBrands = Object.keys(BRAND_COLORS).sort();
+        const allBrands = SUPPORTED_BRANDS.slice().sort();
 
         container.innerHTML = `
             <table>
                 <thead>
                     <tr>
                         <th>Brand</th>
+                        <th>Preview</th>
                         <th>Current Discount</th>
                         <th>New Discount (0-25%)</th>
                         <th>Giftlio Resale Markup (0-25%)</th>
@@ -4794,6 +4899,7 @@ async function renderBrandDiscountsTable() {
                             return `
                         <tr>
                             <td data-label="Brand"><strong>${escapeHtml(brand)}</strong></td>
+                            <td data-label="Preview">${retailerBadgeHTML(brand)}</td>
                             <td data-label="Current Discount">${current === null ? 'Not set' : current + '%'}</td>
                             <td data-label="New Discount">
                                 <input type="number" id="${inputId}" min="0" max="25" step="1" value="${current !== null ? current : ''}" placeholder="0-25" style="width: 90px;">
@@ -4812,6 +4918,7 @@ async function renderBrandDiscountsTable() {
                             <td data-label="Actions">
                                 <button class="btn btn-primary btn-sm" onclick="saveBrandDiscount('${escapeJsString(brand)}', '${inputId}', '${errorId}', '${checkboxId}', '${enabledId}', '${markupInputId}')">Save</button>
                                 <button class="btn btn-outline btn-sm" onclick="openValidationRulesModal('${escapeJsString(brand)}')">Edit Card/PIN Rules</button>
+                                <button class="btn btn-outline btn-sm" onclick="openBrandingModal('${escapeJsString(brand)}')">Edit Branding</button>
                             </td>
                         </tr>
                     `;
