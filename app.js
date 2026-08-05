@@ -2248,7 +2248,7 @@ async function renderSellerDashboard() {
 
 function getSelectedSaleMode() {
     const checked = document.querySelector('input[name="saleMode"]:checked');
-    return checked ? checked.value : 'instant';
+    return checked ? checked.value : 'marketplace';
 }
 
 /**
@@ -2265,13 +2265,12 @@ function updateSubmitButtonState() {
 }
 
 function handleSaleModeChange() {
-    const mode = getSelectedSaleMode();
-    document.querySelectorAll('.sale-mode-option').forEach((opt) => {
-        opt.classList.toggle('selected', opt.querySelector('input').value === mode);
-    });
-    document.getElementById('sellerPriceGroup').classList.toggle('hidden', mode !== 'marketplace');
-    const issueDateLabel = document.getElementById('subIssueDateLabel');
-    if (issueDateLabel) issueDateLabel.textContent = mode === 'instant' ? 'Card Issue Date *' : 'Card Issue Date';
+    // Marketplace-only for now (Instant Sell paused until there's capital
+    // to fund it) -- getSelectedSaleMode() always returns 'marketplace'
+    // via the hidden input on the Sell form, so this function no longer
+    // needs to toggle between two visual options. The issue date field
+    // (Instant Sell only) stays hidden entirely rather than just relabeled,
+    // since it can never be relevant while Instant Sell is off.
     populateBrandDropdown();
     updateOffer();
 }
