@@ -1138,12 +1138,14 @@ async function renderHome() {
     // finds after clicking can never disagree with each other.
     const activeListings = await getActiveListings();
     const bestDiscountByBrand = {};
+    const countByBrand = {};
     let overallBestDiscount = null;
     activeListings.forEach((listing) => {
         const current = bestDiscountByBrand[listing.brand];
         if (current === undefined || listing.discount > current) {
             bestDiscountByBrand[listing.brand] = listing.discount;
         }
+        countByBrand[listing.brand] = (countByBrand[listing.brand] || 0) + 1;
         if (overallBestDiscount === null || listing.discount > overallBestDiscount) {
             overallBestDiscount = listing.discount;
         }
@@ -1162,8 +1164,9 @@ async function renderHome() {
     brandsGrid.innerHTML = brands
         .map((b) => {
             const bestDiscount = bestDiscountByBrand[b];
+            const count = countByBrand[b] || 0;
             const hasListings = typeof bestDiscount === 'number';
-            const discountLabel = hasListings ? `Up to ${bestDiscount}% off` : 'No cards listed yet';
+            const discountLabel = hasListings ? `Up to ${bestDiscount}% off · ${count} card${count === 1 ? '' : 's'} available` : 'No cards listed yet';
             return `
         <div class="brand-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(b)} gift cards" onclick="filterByBrand('${escapeJsString(b)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByBrand('${escapeJsString(b)}');}">
             ${retailerBadgeHTML(b)}
@@ -3072,7 +3075,7 @@ async function renderSellerEarnings() {
             if (marketplaceListingIds.length > 0) {
                 const { data: orderData, error: orderError } = await supabaseClient
                     .from('orders')
-                    .select('listing_id, seller_paid, delivered_at')
+                    .select('listing_id, seller_paid, delivered_at, payout_released_at')
                     .in('listing_id', marketplaceListingIds);
                 if (orderError) throw orderError;
                 ordersByListingId = new Map((orderData || []).map((o) => [o.listing_id, o]));
@@ -3087,11 +3090,13 @@ async function renderSellerEarnings() {
             let instantEarned = 0;
             let instantPending = 0;
             let instantAvailable = 0;
+            const payoutHistory = [];
             submissions
                 .filter((s) => s.saleMode === 'instant' && s.statusKey === 'approved')
                 .forEach((s) => {
                     if (s.paidAt) {
                         instantEarned += s.offerAmount || 0;
+                        payoutHistory.push({ date: s.paidAt, brand: s.brand, amount: s.offerAmount || 0, type: 'Instant Sell' });
                         return;
                     }
                     instantPending += s.offerAmount || 0;
@@ -3120,6 +3125,7 @@ async function renderSellerEarnings() {
                     const order = ordersByListingId.get(l.id);
                     if (order?.seller_paid) {
                         marketplaceEarned += payout;
+                        payoutHistory.push({ date: order.payout_released_at || l.updated_at, brand: l.brand, amount: payout, type: 'Marketplace' });
                         return;
                     }
                     marketplacePending += payout;
@@ -3144,6 +3150,38 @@ async function renderSellerEarnings() {
                     pendingNote.classList.remove('hidden');
                 } else {
                     pendingNote.classList.add('hidden');
+                }
+            }
+
+            const historyTable = document.getElementById('payoutHistoryTable');
+            const historyEmpty = document.getElementById('payoutEmpty');
+            if (historyTable && historyEmpty) {
+                payoutHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+                if (payoutHistory.length === 0) {
+                    historyTable.innerHTML = '';
+                    historyEmpty.classList.remove('hidden');
+                } else {
+                    historyEmpty.classList.add('hidden');
+                    historyTable.innerHTML = `
+                        <table>
+                            <thead><tr><th>Date</th><th>Brand</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
+                            <tbody>
+                                ${payoutHistory
+                                    .map(
+                                        (p) => `
+                                    <tr>
+                                        <td data-label="Date">${new Date(p.date).toLocaleDateString('en-NZ')}</td>
+                                        <td data-label="Brand">${escapeHtml(p.brand)}</td>
+                                        <td data-label="Type">${escapeHtml(p.type)}</td>
+                                        <td data-label="Amount">${formatCurrency(p.amount)}</td>
+                                        <td data-label="Status"><span class="badge badge-green">Paid</span></td>
+                                    </tr>
+                                `
+                                    )
+                                    .join('')}
+                            </tbody>
+                        </table>
+                    `;
                 }
             }
         });
@@ -5716,9 +5754,43 @@ async function router(page, options = {}) {
     if (page === 'orders') await renderOrders();
     if (page === 'seller-dashboard') await renderSellerDashboard();
     if (page === 'admin') await renderAdmin();
+    if (page === 'how-it-works') await renderHowItWorksDiscount();
 
     updateBottomNavActive(page);
     window.scrollTo(0, 0);
+}
+
+/**
+ * Same honest, live-data pattern as the homepage's brand tiles and hero --
+ * only claims a specific discount percentage once there's a real, active
+ * listing to back it up. Falls back to the generic (already-true) text
+ * set in the HTML if there's nothing live yet.
+ */
+async function renderHowItWorksDiscount() {
+    const line = document.getElementById('howItWorksDiscountLine');
+    if (!line) return;
+    try {
+        const activeListings = await getActiveListings();
+        let best = null;
+        activeListings.forEach((l) => {
+            if (best === null || l.discount > best) best = l.discount;
+        });
+        if (typeof best === 'number') {
+            line.textContent = `Browse discounted gift cards from top NZ retailers, priced by the sellers themselves -- up to ${best}% off right now.`;
+        }
+    } catch (error) {
+        console.error('Unable to load live discount for How It Works page:', error);
+    }
+}
+
+function openBuyerProtectionModal() {
+    document.getElementById('buyerProtectionOverlay').classList.remove('hidden');
+    document.getElementById('buyerProtectionModal').classList.remove('hidden');
+}
+
+function closeBuyerProtectionModal() {
+    document.getElementById('buyerProtectionOverlay').classList.add('hidden');
+    document.getElementById('buyerProtectionModal').classList.add('hidden');
 }
 
 function updateBottomNavActive(page) {
