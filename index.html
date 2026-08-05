@@ -465,6 +465,10 @@
                         <!-- Step 1: Order Summary -->
                         <div class="checkout-step" id="checkoutStep1">
                             <div class="order-summary" id="orderSummary"></div>
+                            <div class="verification-window-notice">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                                Please verify your card balance within 48 hours. Report issues immediately. After 48 hours, all sales are final.
+                            </div>
                             <button class="btn btn-primary btn-large" onclick="goToCheckoutStep(2)">Continue to Details</button>
                         </div>
 
@@ -768,6 +772,12 @@
                                 <input type="date" id="subExpiry">
                                 <span class="error-msg" id="subExpiryError"></span>
                             </div>
+                            <div class="form-group" id="subIssueDateGroup">
+                                <label for="subIssueDate" id="subIssueDateLabel">Card Issue Date</label>
+                                <input type="date" id="subIssueDate">
+                                <span class="field-hint" id="subIssueDateHint">When was this card originally purchased or issued? Required for Instant Sell -- cards older than 3 years get an extra manual check.</span>
+                                <span class="error-msg" id="subIssueDateError"></span>
+                            </div>
                             <div class="form-group">
                                 <label for="subCardNum">Gift Card Number *</label>
                                 <input type="password" id="subCardNum" placeholder="Enter full card number" oninput="validateCardNumberField()">
@@ -809,7 +819,7 @@
                                 <label><input type="checkbox" id="subTerms"> I confirm this gift card is legally mine, the balance is accurate, and I agree to the seller terms</label>
                                 <span class="error-msg" id="subTermsError"></span>
                             </div>
-                            <button type="submit" class="btn btn-primary btn-large">Submit for Review</button>
+                            <button type="submit" class="btn btn-primary btn-large" id="submitForReviewBtn" disabled>Submit for Review</button>
                         </form>
                     </div>
 
@@ -1262,13 +1272,16 @@
                     <ul>
                         <li>Buyers must be 18 years or older</li>
                         <li>Gift card details delivered via email within 24 hours of purchase</li>
-                        <li>Buyers must verify card balance within 24 hours of receipt</li>
+                        <li>Buyers must verify card balance within 48 hours of receipt</li>
                         <li>Report issues immediately via support email</li>
-                        <li>All sales are final after card details are delivered, unless balance is incorrect</li>
+                        <li>All sales are final 48 hours after card details are delivered, unless balance is incorrect</li>
                     </ul>
 
                     <h3>4. Seller Terms</h3>
                     <ul>
+                        <li>Cards must have at least 20% of the original value remaining to be accepted</li>
+                        <li>Cards must be valid for at least 60 days from submission</li>
+                        <li>Minimum card value is $10</li>
                         <li>Sellers must legally own all gift cards listed</li>
                         <li>Must provide accurate balance information</li>
                         <li>Stolen or fraudulent cards are prohibited and will result in account suspension</li>
