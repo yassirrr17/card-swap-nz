@@ -3313,7 +3313,7 @@ function switchAdminPage(page) {
         renderInstantPayoutsAwaitingTable();
         adminPageRenderedOnce.submissions = true;
     } else if (page === 'listings' && !adminPageRenderedOnce.listings) {
-        renderFilteredListingsTable(listings);
+        applyListingsFilters();
         adminPageRenderedOnce.listings = true;
     } else if (page === 'users' && !adminPageRenderedOnce.users) {
         renderUsersTable();
@@ -4420,10 +4420,12 @@ function renderFilteredListingsTable(listings) {
                         <td data-label="Status"><span class="badge ${statusBadge}">${displayStatus}</span></td>
                         <td data-label="Actions">
                             ${
-                                l.status !== 'sold'
-                                    ? `<button class="btn btn-sm ${l.suspended ? 'btn-primary' : 'btn-outline'}" onclick="toggleListingSuspension('${l.id}', '${escapeJsString(l.brand)}', ${l.suspended})">${l.suspended ? 'Unsuspend' : 'Suspend'}</button>
+                                l.status === 'sold'
+                                    ? '<span style="color: var(--gray-400); font-size: 12px;">Sold — locked</span>'
+                                    : l.status === 'inactive'
+                                      ? '<span style="color: var(--gray-400); font-size: 12px;">Removed</span>'
+                                      : `<button class="btn btn-sm ${l.suspended ? 'btn-primary' : 'btn-outline'}" onclick="toggleListingSuspension('${l.id}', '${escapeJsString(l.brand)}', ${l.suspended})">${l.suspended ? 'Unsuspend' : 'Suspend'}</button>
                                <button class="btn btn-outline btn-sm btn-danger-outline" onclick="removeListing('${l.id}', '${escapeJsString(l.brand)}')">Remove</button>`
-                                    : '<span style="color: var(--gray-400); font-size: 12px;">Sold — locked</span>'
                             }
                         </td>
                     </tr>
