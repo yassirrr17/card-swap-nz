@@ -1129,15 +1129,32 @@ async function renderHome() {
 
     const brands = SUPPORTED_BRANDS;
     await loadBrandDiscounts();
+
+    // Marketplace-only now, so discount_percent (an Instant-Sell-era admin
+    // setting) no longer reflects what buyers can actually get -- sellers
+    // set their own prices. The honest number is the best discount among
+    // real, currently-active listings, computed from the SAME cached data
+    // Browse itself uses, so the homepage badge and what a buyer actually
+    // finds after clicking can never disagree with each other.
+    const activeListings = await getActiveListings();
+    const bestDiscountByBrand = {};
+    activeListings.forEach((listing) => {
+        const current = bestDiscountByBrand[listing.brand];
+        if (current === undefined || listing.discount > current) {
+            bestDiscountByBrand[listing.brand] = listing.discount;
+        }
+    });
+
     const brandsGrid = document.getElementById('brandsGrid');
     brandsGrid.innerHTML = brands
         .map((b) => {
-            const config = AppState.brandDiscounts[b];
-            const discountLabel = config && typeof config.discountPercent === 'number' ? `Up to ${config.discountPercent}% off` : 'Rate set at submission';
+            const bestDiscount = bestDiscountByBrand[b];
+            const hasListings = typeof bestDiscount === 'number';
+            const discountLabel = hasListings ? `Up to ${bestDiscount}% off` : 'No cards listed yet';
             return `
         <div class="brand-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(b)} gift cards" onclick="filterByBrand('${escapeJsString(b)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByBrand('${escapeJsString(b)}');}">
             ${retailerBadgeHTML(b)}
-            <p>${escapeHtml(discountLabel)}</p>
+            <p class="${hasListings ? '' : 'brand-card-empty'}">${escapeHtml(discountLabel)}</p>
         </div>
     `;
         })
