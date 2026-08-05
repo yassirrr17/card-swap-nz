@@ -3746,3 +3746,9 @@ tr:hover td {
     line-height: 1;
     white-space: nowrap;
 }
+
+/* ===== HOMEPAGE BRAND TILE - NO ACTIVE LISTINGS STATE ===== */
+.brand-card-empty {
+    color: var(--gray-500) !important;
+    font-weight: 500 !important;
+}
