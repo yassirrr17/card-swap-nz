@@ -566,6 +566,7 @@ function submissionRowToView(row) {
         adminNotes: row.admin_notes || '',
         paidAt: row.paid_at || null,
         approvedAt: row.approved_at || null,
+        issueDate: row.issue_date || null,
         createdAt: row.created_at
     };
 }
@@ -2243,12 +2244,27 @@ function getSelectedSaleMode() {
     return checked ? checked.value : 'instant';
 }
 
+/**
+ * Genuinely disables the Submit for Review button (not just a
+ * post-click error) until at least a receipt or a card photo is
+ * selected. Called on every file input change, in every code path.
+ */
+function updateSubmitButtonState() {
+    const btn = document.getElementById('submitForReviewBtn');
+    if (!btn) return;
+    const hasReceipt = document.getElementById('subReceipt')?.files.length > 0;
+    const hasCardPhoto = document.getElementById('subCardPhoto')?.files.length > 0;
+    btn.disabled = !(hasReceipt || hasCardPhoto);
+}
+
 function handleSaleModeChange() {
     const mode = getSelectedSaleMode();
     document.querySelectorAll('.sale-mode-option').forEach((opt) => {
         opt.classList.toggle('selected', opt.querySelector('input').value === mode);
     });
     document.getElementById('sellerPriceGroup').classList.toggle('hidden', mode !== 'marketplace');
+    const issueDateLabel = document.getElementById('subIssueDateLabel');
+    if (issueDateLabel) issueDateLabel.textContent = mode === 'instant' ? 'Card Issue Date *' : 'Card Issue Date';
     populateBrandDropdown();
     updateOffer();
 }
@@ -2322,13 +2338,21 @@ async function handleSubmission() {
     // used for both the daily-limit tier and the evidence-requirement tier,
     // rather than two different implicit thresholds.
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const [{ count: approvedCount }, { count: recentCount }, { count: disputeCount }] = await Promise.all([
+    const [{ count: approvedCount }, { count: recentCount }, { count: disputeCount }, { count: completedSalesCount }] = await Promise.all([
         supabaseClient.from('submissions').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).eq('status', 'approved'),
         supabaseClient.from('submissions').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).gte('created_at', twentyFourHoursAgo).is('deleted_at', null),
-        supabaseClient.from('disputes').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id)
+        supabaseClient.from('disputes').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id),
+        // Distinct from approvedCount above -- this counts actual completed
+        // Marketplace SALES (listings that sold to a real buyer), not just
+        // approved submissions. A seller could have several Instant Sell
+        // approvals and zero completed Marketplace sales, or vice versa --
+        // the $100 new-Marketplace-seller cap below is specifically about
+        // Marketplace sales history, not submission history in general.
+        supabaseClient.from('listings').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).eq('sale_mode', 'marketplace').eq('status', 'sold')
     ]);
     const isEstablishedSeller = (approvedCount || 0) >= 5;
     const isNewSeller = (approvedCount || 0) < 3;
+    const isNewMarketplaceSeller = (completedSalesCount || 0) < 3;
 
     let hasError = false;
     if (!brand) {
@@ -2361,29 +2385,17 @@ async function handleSubmission() {
     }
 
     // For brands where we can't programmatically validate the card
-    // number's format (Other, or any brand where the research couldn't
-    // confirm an official length -- see brand_discounts.card_number_length),
-    // OR for a new/unproven seller (fewer than 3 approved submissions, or
-    // any dispute history), require at least some visual evidence instead.
-    // Only skip this when BOTH the brand is well-confirmed AND the seller
-    // is established -- passing brand validation from an established
-    // seller is itself reasonably strong evidence; either condition alone
-    // being weak means evidence is still worth asking for.
-    const evidenceBrandConfig = brand ? AppState.brandDiscounts[brand] : null;
-    const brandFormatUnconfirmed = brand === 'Other' || (evidenceBrandConfig && !evidenceBrandConfig.cardNumberLength);
-    const sellerNeedsEvidence = isNewSeller || (disputeCount || 0) > 0;
-    const needsEvidence = brandFormatUnconfirmed || sellerNeedsEvidence;
-    if (needsEvidence) {
-        const hasReceipt = document.getElementById('subReceipt').files.length > 0;
-        const hasCardPhoto = document.getElementById('subCardPhoto').files.length > 0;
-        if (!hasReceipt && !hasCardPhoto) {
-            const message = brandFormatUnconfirmed
-                ? `We can't automatically verify ${brand} card numbers yet -- please upload a receipt or a photo of the card.`
-                : "Please upload a receipt or a photo of the card -- required for newer sellers, or sellers with a prior dispute.";
-            setFieldError('subReceipt', 'subReceiptError', message);
-            setFieldError('subCardPhoto', 'subCardPhotoError', message);
-            hasError = true;
-        }
+    // Mandatory for every submission now, both modes -- deliberately
+    // superseding the earlier conditional version (which only required
+    // this for unconfirmed brands or new/flagged sellers). No text-only
+    // submissions, full stop.
+    const hasReceipt = document.getElementById('subReceipt').files.length > 0;
+    const hasCardPhoto = document.getElementById('subCardPhoto').files.length > 0;
+    if (!hasReceipt && !hasCardPhoto) {
+        const message = 'Please upload a receipt or a photo of your gift card.';
+        setFieldError('subReceipt', 'subReceiptError', message);
+        setFieldError('subCardPhoto', 'subCardPhotoError', message);
+        hasError = true;
     }
 
     const faceValueCheck = GiftlioPricing.validateFaceValue(valueRaw);
@@ -2405,8 +2417,8 @@ async function handleSubmission() {
     if (!balanceCheck.valid) {
         setFieldError('subBalance', 'subBalanceError', balanceCheck.error);
         hasError = true;
-    } else if (faceValueCheck.valid && balance < value * 0.1) {
-        setFieldError('subBalance', 'subBalanceError', 'Cards must have at least 10% of the original value remaining.');
+    } else if (faceValueCheck.valid && balance < value * 0.2) {
+        setFieldError('subBalance', 'subBalanceError', 'Cards must have at least 20% of the original value remaining to be accepted.');
         hasError = true;
     }
 
@@ -2418,6 +2430,27 @@ async function handleSubmission() {
         } else if (balanceCheck.valid && sellerSetPrice > balance) {
             setFieldError('subSellerPrice', 'subSellerPriceError', "Asking price can't be more than the card's balance");
             hasError = true;
+        } else if (sellerSetPrice < 10) {
+            setFieldError('subSellerPrice', 'subSellerPriceError', 'Minimum card value is $10.');
+            hasError = true;
+        } else if (sellerSetPrice > 100 && isNewMarketplaceSeller) {
+            setFieldError('subSellerPrice', 'subSellerPriceError', 'New sellers are limited to $100 maximum. Complete 3 sales to unlock higher values.');
+            hasError = true;
+        }
+    } else if (brand && balanceCheck.valid) {
+        // Instant Sell: the actual sale price is only finalised at
+        // approval (brand discount rates can change between now and
+        // then), so this is an early estimate using the CURRENT rate --
+        // approveSubmission() re-checks this for real at approval time,
+        // this is just to catch an obviously-too-low card before the
+        // seller even submits it.
+        const estimateBrandConfig = AppState.brandDiscounts[brand];
+        if (estimateBrandConfig) {
+            const estimate = GiftlioPricing.calculateSalePrice(balance, estimateBrandConfig.discountPercent);
+            if (estimate.purchasable && estimate.salePrice < 10) {
+                setFieldError('subBalance', 'subBalanceError', 'Minimum card value is $10.');
+                hasError = true;
+            }
         }
     }
     if (!expiry) {
@@ -2425,12 +2458,17 @@ async function handleSubmission() {
         hasError = true;
     } else {
         const expiryDate = new Date(expiry);
-        const thirtyDaysFromNow = new Date();
-        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-        if (expiryDate < thirtyDaysFromNow) {
-            setFieldError('subExpiry', 'subExpiryError', 'Cards must be valid for at least 30 days.');
+        const sixtyDaysFromNow = new Date();
+        sixtyDaysFromNow.setDate(sixtyDaysFromNow.getDate() + 60);
+        if (expiryDate < sixtyDaysFromNow) {
+            setFieldError('subExpiry', 'subExpiryError', 'Cards must be valid for at least 60 days.');
             hasError = true;
         }
+    }
+    const issueDate = document.getElementById('subIssueDate').value;
+    if (saleMode === 'instant' && !issueDate) {
+        setFieldError('subIssueDate', 'subIssueDateError', 'Issue date is required for Instant Sell submissions.');
+        hasError = true;
     }
     if (!cardNum) {
         setFieldError('subCardNum', 'subCardNumError', 'Enter the gift card number');
@@ -2528,6 +2566,7 @@ async function handleSubmission() {
                 face_value: value,
                 current_balance: balance,
                 expiry_date: expiry,
+                issue_date: issueDate || null,
                 card_number: cardNum,
                 pin: pin || null,
                 receipt_filename: document.getElementById('fileName').textContent || null,
@@ -2590,6 +2629,8 @@ async function handleSubmission() {
         }
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
+        document.getElementById('cardPhotoFileName').textContent = '';
+        updateSubmitButtonState();
         handleSaleModeChange();
         showSellerTab('submissions');
     } catch (error) {
@@ -3759,9 +3800,42 @@ function renderEvidenceIcons(s) {
     return `<span class="evidence-icons">${receiptEl}${photoEl}</span>`;
 }
 
+/**
+ * Fraud signal: sellers who've submitted 3+ cards in the last 24 hours,
+ * computed from the admin's already-loaded submissions data (no extra
+ * fetch). Used to show a red "High Volume" badge next to their name in
+ * both pending queues, so admin sees it at a glance without needing to
+ * cross-reference anything.
+ */
+/**
+ * Rule 5's admin-facing flag: Instant Sell cards issued more than 3 years
+ * ago don't get auto-rejected server-side (every submission already goes
+ * through manual review regardless -- there's no auto-approval path to
+ * bypass), they just get a visible "Old Card" badge so admin knows to
+ * look closer.
+ */
+function isOldCard(issueDate) {
+    if (!issueDate) return false;
+    const threeYearsAgo = new Date();
+    threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+    return new Date(issueDate) < threeYearsAgo;
+}
+
+function getHighVolumeSellerIds() {
+    const all = AppState.adminData?.submissions || [];
+    const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const countBySeller = new Map();
+    all.forEach((s) => {
+        if (new Date(s.createdAt).getTime() < twentyFourHoursAgo) return;
+        countBySeller.set(s.sellerId, (countBySeller.get(s.sellerId) || 0) + 1);
+    });
+    return new Set([...countBySeller.entries()].filter(([, count]) => count >= 3).map(([sellerId]) => sellerId));
+}
+
 function renderInstantPendingTable(freshData) {
     if (freshData) AppState.instantPendingRaw = freshData;
     const all = AppState.instantPendingRaw || [];
+    const highVolumeSellerIds = getHighVolumeSellerIds();
 
     const search = (document.getElementById('instantSearchInput')?.value || '').toLowerCase().trim();
     const sort = document.getElementById('instantSortSelect')?.value || 'date_desc';
@@ -3805,7 +3879,7 @@ function renderInstantPendingTable(freshData) {
                         (s) => `
                     <tr>
                         <td data-label="ID">${s.id}</td>
-                        <td data-label="Seller">${escapeHtml(s.sellerName)}</td>
+                        <td data-label="Seller">${escapeHtml(s.sellerName)}${highVolumeSellerIds.has(s.sellerId) ? ' <span class="badge badge-red" title="3 or more submissions in the last 24 hours">High Volume</span>' : ''}${isOldCard(s.issueDate) ? ' <span class="badge badge-yellow" title="Card issued more than 3 years ago -- review carefully">Old Card</span>' : ''}</td>
                         <td data-label="Brand">${escapeHtml(s.brand)}</td>
                         <td data-label="Value">${formatCurrency(s.faceValue)}</td>
                         <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
@@ -3838,6 +3912,7 @@ function goToInstantPendingPage(page) {
 function renderMarketplacePendingTable(freshData) {
     if (freshData) AppState.marketplacePendingRaw = freshData;
     const all = AppState.marketplacePendingRaw || [];
+    const highVolumeSellerIds = getHighVolumeSellerIds();
 
     const search = (document.getElementById('marketplaceSearchInput')?.value || '').toLowerCase().trim();
     const sort = document.getElementById('marketplaceSortSelect')?.value || 'date_desc';
@@ -3881,7 +3956,7 @@ function renderMarketplacePendingTable(freshData) {
                         (s) => `
                     <tr>
                         <td data-label="ID">${s.id}</td>
-                        <td data-label="Seller">${escapeHtml(s.sellerName)}</td>
+                        <td data-label="Seller">${escapeHtml(s.sellerName)}${highVolumeSellerIds.has(s.sellerId) ? ' <span class="badge badge-red" title="3 or more submissions in the last 24 hours">High Volume</span>' : ''}</td>
                         <td data-label="Brand">${escapeHtml(s.brand)}</td>
                         <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
                         <td data-label="Seller's Price"><strong>${s.sellerSetPrice != null ? formatCurrency(s.sellerSetPrice) : '—'}</strong></td>
@@ -4929,6 +5004,10 @@ async function approveSubmission(submissionDbId) {
                 discount = priced.discountPercent;
                 commissionRate = null;
                 sellerPayoutAmount = null;
+
+                if (salePrice < 10 || sub.offerAmount < 10) {
+                    throw new Error('Cannot approve: minimum card value is $10 -- this card\'s calculated price falls below that.');
+                }
             }
 
             const { data: sellerProfile, error: sellerProfileError } = await supabaseClient
@@ -5545,6 +5624,7 @@ function setupEventListeners() {
 
         if (!file) {
             fileNameEl.textContent = '';
+            updateSubmitButtonState();
             return;
         }
 
@@ -5555,16 +5635,19 @@ function setupEventListeners() {
             fileNameEl.textContent = '';
             this.value = '';
             if (errorEl) errorEl.textContent = `File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`;
+            updateSubmitButtonState();
             return;
         }
         if (!allowedTypes.includes(file.type)) {
             fileNameEl.textContent = '';
             this.value = '';
             if (errorEl) errorEl.textContent = 'Only JPG, PNG, or PDF files are accepted.';
+            updateSubmitButtonState();
             return;
         }
 
         fileNameEl.textContent = file.name;
+        updateSubmitButtonState();
     });
 
     document.getElementById('subCardPhoto')?.addEventListener('change', function () {
@@ -5575,6 +5658,7 @@ function setupEventListeners() {
 
         if (!file) {
             fileNameEl.textContent = '';
+            updateSubmitButtonState();
             return;
         }
 
@@ -5585,16 +5669,19 @@ function setupEventListeners() {
             fileNameEl.textContent = '';
             this.value = '';
             if (errorEl) errorEl.textContent = `File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 5MB.`;
+            updateSubmitButtonState();
             return;
         }
         if (!allowedTypes.includes(file.type)) {
             fileNameEl.textContent = '';
             this.value = '';
             if (errorEl) errorEl.textContent = 'Only JPG or PNG files are accepted.';
+            updateSubmitButtonState();
             return;
         }
 
         fileNameEl.textContent = file.name;
+        updateSubmitButtonState();
     });
 
     document.addEventListener('click', (e) => {
