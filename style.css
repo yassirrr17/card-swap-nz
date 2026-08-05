@@ -3707,3 +3707,22 @@ tr:hover td {
     padding: 10px 14px;
     margin: 12px 0;
 }
+
+/* ===== CHECKOUT 48-HOUR VERIFICATION NOTICE ===== */
+.verification-window-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--gray-50);
+    border-left: 3px solid var(--gold);
+    color: var(--gray-700);
+    font-size: 13px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    margin: 16px 0;
+}
+
+.verification-window-notice svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
