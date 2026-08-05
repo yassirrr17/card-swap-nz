@@ -93,17 +93,37 @@ module.exports = async function handler(req, res) {
             decryptedPin = pinValue;
         }
 
+        // Balance-checker links, using only URLs actually confirmed in the
+        // retailer research done earlier -- a broken link in a real email
+        // to a real buyer is worse than no link, so brands without a
+        // confirmed official page get a safe search fallback instead of a
+        // guessed URL.
+        const BALANCE_CHECK_URLS = {
+            'The Warehouse': 'https://www.thewarehouse.co.nz/gift-card-balance-check.html',
+            Woolworths: 'https://giftcardbalance.woolworths.co.nz/en-nz/checkbalance',
+            'New World': 'https://www.giftstation.co.nz/',
+            "Pak'nSave": 'https://www.giftstation.co.nz/',
+            'Noel Leeming': 'https://www.noelleeming.co.nz/gift-card-balance-checker'
+        };
+        const balanceCheckUrl = BALANCE_CHECK_URLS[order.brand] || `https://www.google.com/search?q=${encodeURIComponent(order.brand + ' gift card balance check')}`;
+
         const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
                 <h2 style="color:#1a237e;">Your ${order.brand} Gift Card</h2>
-                <p>Thanks for your purchase from Giftlio! Here are your gift card details:</p>
+                <p>Thanks for your purchase from Giftlio! This card was manually verified before it was ever listed. Here are your details:</p>
                 <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin: 20px 0;">
                     <p><strong>Card Number:</strong> ${decryptedCardNumber}</p>
                     ${decryptedPin ? `<p><strong>PIN:</strong> ${decryptedPin}</p>` : ''}
                     <p><strong>Value:</strong> $${Number(card.current_balance).toFixed(2)}</p>
                     <p><strong>Expiry:</strong> ${card.expiry_date}</p>
                 </div>
-                <p>Please verify the balance within 24 hours of receiving this email and contact support@giftlio.co.nz immediately if there's any issue.</p>
+                <p style="text-align:center; margin: 24px 0;">
+                    <a href="${balanceCheckUrl}" style="display:inline-block; background:#1a237e; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Verify Your Balance</a>
+                </p>
+                <p>Please verify the balance within 48 hours of receiving this email. If anything's wrong, contact <a href="mailto:support@giftlio.co.nz">support@giftlio.co.nz</a> immediately and we'll make it right.</p>
+                <p style="text-align:center;">
+                    <a href="mailto:support@giftlio.co.nz?subject=Issue%20with%20order%20${encodeURIComponent(order.public_id)}" style="color:#c0392b; font-size:13px;">Report an Issue with This Card</a>
+                </p>
                 <p style="color:#999; font-size:12px;">Order ID: ${order.public_id}</p>
             </div>
         `;
