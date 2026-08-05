@@ -3752,3 +3752,139 @@ tr:hover td {
     color: var(--gray-500) !important;
     font-weight: 500 !important;
 }
+
+/* ===== HOW WE VERIFY (How It Works page) ===== */
+.how-verify-heading {
+    margin-top: 56px;
+    color: var(--navy);
+    text-align: center;
+}
+
+.how-verify-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 32px;
+}
+
+.how-verify-step {
+    background: var(--white);
+    padding: 28px 24px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    text-align: center;
+}
+
+.how-verify-icon {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 16px;
+    background: var(--gray-50);
+    color: var(--gold);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.how-verify-step h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 8px;
+}
+
+.how-verify-step p {
+    color: var(--gray-600);
+    font-size: 14px;
+}
+
+@media (max-width: 768px) {
+    .how-verify-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===== BUYER PROTECTION BOX (checkout) ===== */
+.buyer-protection-box {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin: 16px 0;
+}
+
+.buyer-protection-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 15px;
+    margin-bottom: 12px;
+}
+
+.buyer-protection-header svg {
+    color: var(--gold);
+    flex-shrink: 0;
+}
+
+.buyer-protection-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.buyer-protection-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--gray-700);
+    line-height: 1.4;
+}
+
+.buyer-protection-list li svg {
+    color: var(--green);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.buyer-protection-link {
+    font-size: 13px;
+    color: var(--navy);
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+/* ===== CLICKABLE GUARANTEE BADGES (hero + footer) ===== */
+.hero-badge-clickable {
+    cursor: pointer;
+    border: none;
+    background: var(--white);
+}
+
+.hero-badge-clickable:hover {
+    background: var(--gold);
+    color: var(--white);
+}
+
+.footer-guarantee-link {
+    display: inline-flex;
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--gray-300);
+    font-size: 13px;
+    padding: 0;
+    margin-top: 8px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.footer-guarantee-link:hover {
+    color: var(--gold);
+}
