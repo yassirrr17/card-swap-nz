@@ -776,26 +776,15 @@
                             </div>
 
                             <div class="form-group">
-                                <label id="saleModeLabel">How do you want to sell?</label>
-                                <div class="sale-mode-options" role="radiogroup" aria-labelledby="saleModeLabel">
-                                    <label class="sale-mode-option selected">
-                                        <input type="radio" name="saleMode" value="instant" checked onchange="handleSaleModeChange()">
-                                        <div class="sale-mode-content">
-                                            <span class="sale-mode-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg>Sell Instantly to Giftlio</span>
-                                            <span class="sale-mode-desc">Get a fixed offer, paid as soon as your card is verified.</span>
-                                        </div>
-                                    </label>
-                                    <label class="sale-mode-option">
-                                        <input type="radio" name="saleMode" value="marketplace" onchange="handleSaleModeChange()">
-                                        <div class="sale-mode-content">
-                                            <span class="sale-mode-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:5px;"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/></svg>List on Marketplace</span>
-                                            <span class="sale-mode-desc">Set your own price. Giftlio takes a 10% commission, paid out once a buyer purchases it.</span>
-                                        </div>
-                                    </label>
+                                <label id="saleModeLabel">How selling works</label>
+                                <input type="radio" name="saleMode" value="marketplace" checked hidden>
+                                <div class="marketplace-only-notice">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:6px;"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/></svg>
+                                    You set your own asking price. Giftlio takes a 10% commission, paid out once a buyer purchases your card.
                                 </div>
                             </div>
 
-                            <div class="form-group hidden" id="sellerPriceGroup">
+                            <div class="form-group" id="sellerPriceGroup">
                                 <label for="subSellerPrice">Your Asking Price (NZD) *</label>
                                 <input type="number" id="subSellerPrice" min="1" step="0.01" oninput="updateOffer()">
                                 <span class="error-msg" id="subSellerPriceError"></span>
@@ -807,7 +796,7 @@
                                 <input type="date" id="subExpiry">
                                 <span class="error-msg" id="subExpiryError"></span>
                             </div>
-                            <div class="form-group" id="subIssueDateGroup">
+                            <div class="form-group hidden" id="subIssueDateGroup">
                                 <label for="subIssueDate" id="subIssueDateLabel">Card Issue Date</label>
                                 <input type="date" id="subIssueDate">
                                 <span class="field-hint" id="subIssueDateHint">When was this card originally purchased or issued? Required for Instant Sell -- cards older than 3 years get an extra manual check.</span>
@@ -1044,11 +1033,16 @@
                         <!-- SUBMISSIONS -->
                         <div class="admin-page hidden" id="adminPageSubmissions">
                             <h1>Submissions</h1>
-                            <div class="admin-subtabs">
-                                <button class="admin-subtab active" id="tabInstantBtn" onclick="switchPendingTab('instant')">Instant Sell Submissions</button>
-                                <button class="admin-subtab" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
+                            <!-- Instant Sell paused (Marketplace-only for launch, until there's
+                                 capital to fund Instant Sell payouts) -- subtabs hidden since
+                                 there's only one path now. Buttons kept in the DOM, not deleted,
+                                 so this reverses cleanly by removing these two "hidden" classes
+                                 and restoring switchPendingTab('instant') as the default. -->
+                            <div class="admin-subtabs hidden">
+                                <button class="admin-subtab" id="tabInstantBtn" onclick="switchPendingTab('instant')">Instant Sell Submissions</button>
+                                <button class="admin-subtab active" id="tabMarketplaceBtn" onclick="switchPendingTab('marketplace')">Marketplace Listings Pending Review</button>
                             </div>
-                            <div id="instantPendingPanel">
+                            <div id="instantPendingPanel" class="hidden">
                                 <div class="ownership-note">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
                                     Giftlio-owned purchase — verify card and receipt before approving payout.
@@ -1070,7 +1064,7 @@
                                     <p class="empty-sub">All caught up!</p>
                                 </div>
                             </div>
-                            <div id="marketplacePendingPanel" class="hidden">
+                            <div id="marketplacePendingPanel">
                                 <div class="audit-log-filters">
                                     <input type="text" id="marketplaceSearchInput" placeholder="Search brand, seller, or value..." style="flex: 1; min-width: 200px;" oninput="renderMarketplacePendingTable()">
                                     <select id="marketplaceSortSelect" onchange="renderMarketplacePendingTable()">
