@@ -3726,3 +3726,23 @@ tr:hover td {
     flex-shrink: 0;
     margin-top: 1px;
 }
+
+/* ===== SPLIT-COLOR RETAILER BADGE (e.g. New World red/white) ===== */
+.retailer-badge-split {
+    padding: 4px;
+    position: relative;
+}
+
+.retailer-badge-split-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    border-radius: calc(var(--radius) - 3px);
+    background: rgba(0, 0, 0, 0.6);
+    color: var(--white);
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 0.01em;
+    line-height: 1;
+    white-space: nowrap;
+}
