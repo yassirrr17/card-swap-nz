@@ -288,6 +288,23 @@
         </div>
     </div>
 
+    <!-- Buyer Protection Guarantee modal -->
+    <div class="modal-overlay hidden" id="buyerProtectionOverlay" onclick="closeBuyerProtectionModal()"></div>
+    <div class="modal hidden" id="buyerProtectionModal">
+        <button class="modal-close" aria-label="Close" onclick="closeBuyerProtectionModal()">×</button>
+        <div class="buyer-protection-header" style="font-size: 18px; margin-bottom: 16px;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span>The Giftlio Guarantee</span>
+        </div>
+        <ul class="buyer-protection-list" style="margin-bottom: 16px;">
+            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span><strong>Manual verification.</strong> Every card is checked by a real person against the retailer's own balance tool before it's ever listed for sale.</span></li>
+            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span><strong>Secure Stripe payment.</strong> Giftlio never sees or stores your card payment details.</span></li>
+            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span><strong>48-hour balance window.</strong> If a card's balance is wrong, tell us within 48 hours of delivery and we'll make it right.</span></li>
+            <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span><strong>NZ consumer law.</strong> As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act, the same as any NZ retailer.</span></li>
+        </ul>
+        <a href="/how-it-works" onclick="event.preventDefault(); closeBuyerProtectionModal(); router('how-it-works')" class="buyer-protection-link">See exactly how we verify every card</a>
+    </div>
+
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
         <a href="/" onclick="event.preventDefault(); router('home'); toggleMobileMenu()">Home</a>
@@ -308,8 +325,9 @@
                     <h1>Buy Discounted Gift Cards</h1>
                     <p class="hero-subtitle" id="heroSubtitle">NZ owned and operated — buy and sell gift cards, verified and secure</p>
                     <div class="hero-badges">
-                        <span class="hero-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:4px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg>Verified sellers</span>
+                        <span class="hero-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:4px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/><path d="M8.5 14.5L7 21l5-2.5L17 21l-1.5-6.5"/></svg>Every card verified</span>
                         <span class="hero-badge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> Secure Stripe payment</span>
+                        <span class="hero-badge hero-badge-clickable" tabindex="0" role="button" onclick="openBuyerProtectionModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); openBuyerProtectionModal();}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:4px;"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/></svg>Protected by Giftlio Guarantee</span>
                     </div>
                     <div class="hero-buttons">
                         <button class="btn btn-gold btn-large" onclick="goToBrowse()">Browse Cards</button>
@@ -500,9 +518,17 @@
                         <!-- Step 1: Order Summary -->
                         <div class="checkout-step" id="checkoutStep1">
                             <div class="order-summary" id="orderSummary"></div>
-                            <div class="verification-window-notice">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-                                Please verify your card balance within 48 hours. Report issues immediately. After 48 hours, all sales are final.
+                            <div class="buyer-protection-box">
+                                <div class="buyer-protection-header">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+                                    <span>Every card is verified before it's ever listed</span>
+                                </div>
+                                <ul class="buyer-protection-list">
+                                    <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>A real person checks this balance against the retailer's own tool, not an automated guess</li>
+                                    <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Payment is handled securely by Stripe -- Giftlio never sees your card details</li>
+                                    <li><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>If the balance is wrong, tell us within 48 hours of delivery and we'll make it right</li>
+                                </ul>
+                                <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')" class="buyer-protection-link">See how we verify every card</a>
                             </div>
                             <button class="btn btn-primary btn-large" onclick="goToCheckoutStep(2)">Continue to Details</button>
                         </div>
@@ -883,11 +909,11 @@
                         <p class="earn-hold-note">Payouts are released 48 hours after your card is delivered to the buyer.</p>
                         <div class="payout-info">
                             <p><strong>Payout Method:</strong> Bank Transfer</p>
-                            <p><strong>Payout Schedule:</strong> Every Friday</p>
-                            <p><strong>Minimum Payout:</strong> $50.00</p>
+                            <p><strong>Payout Timing:</strong> Released individually, 48 hours after your card is delivered to the buyer -- not batched, no minimum</p>
                         </div>
                         <h3>Payout History</h3>
-                        <div class="empty-state" id="payoutEmpty">
+                        <div class="table-wrapper" id="payoutHistoryTable"></div>
+                        <div class="empty-state hidden" id="payoutEmpty">
                             <p>No payouts yet. Your first payout will appear here.</p>
                         </div>
                     </div>
@@ -1396,7 +1422,10 @@
                 <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
                 <h1>About Giftlio</h1>
                 <div class="legal-content founder-story">
-                    <p class="founder-lede">Giftlio started with a drawer full of gift cards I was never going to use.</p>
+                    <p class="founder-lede">Every card sold on Giftlio is manually verified against the retailer's own balance-checking tool before it's ever listed. Payments run through Stripe, the same infrastructure used by major NZ retailers — Giftlio never sees or stores your card details.</p>
+                    <p>As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act, the same as any NZ retailer. A real person reads every support message.</p>
+                    <h3>How it started</h3>
+                    <p>Giftlio started with a drawer full of gift cards I was never going to use.</p>
                     <p>A birthday voucher here, a leftover balance there — cards from stores I don't shop at, sitting forgotten while I paid full price everywhere else. I figured I couldn't be the only one. Kiwis are sitting on millions of dollars in unused gift card balances, and there was no simple, trustworthy way to turn that into cash — or to buy discounted cards from people in exactly the same position.</p>
                     <p>So I built Giftlio myself, from Auckland, to fix that. Every card that goes through it is checked by hand against the retailer's own balance tool before it's ever listed — not because a system told me to, but because I'd want that if I were buying. Payments run through Stripe rather than anything I've built myself, because your card details are not something I want to be responsible for storing.</p>
                     <h3>Why I'm building this in the open</h3>
@@ -1404,10 +1433,6 @@
                     <h3>What I'm aiming for</h3>
                     <p>A marketplace New Zealanders actually trust with their money — for buyers who want a fair discount without wondering if the card is real, and for sellers who want cash for a card they were never going to use, without the hassle of finding a buyer themselves.</p>
                     <p class="founder-signoff">— Mohammed, Founder</p>
-                    <h3>How Giftlio works</h3>
-                    <p>Every card sold on Giftlio is manually verified against the retailer's own balance-checking tool before it's ever listed. Payments run through Stripe, the same infrastructure used by major NZ retailers — Giftlio never sees or stores your card details.</p>
-                    <h3>Our commitment</h3>
-                    <p>As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act, the same as any NZ retailer. A real person reads every support message.</p>
                 </div>
             </div>
         </section>
@@ -1450,12 +1475,12 @@
                     <div class="how-card">
                         <div class="how-num">1</div>
                         <h3>Sellers List Cards</h3>
-                        <p>Have an unwanted gift card? Submit it to Giftlio. We verify the balance and list it for sale.</p>
+                        <p>Have an unwanted gift card? Submit it to Giftlio. We verify the balance and list it for sale at whatever price you choose.</p>
                     </div>
                     <div class="how-card">
                         <div class="how-num">2</div>
                         <h3>Buyers Save Money</h3>
-                        <p>Browse discounted gift cards from top NZ retailers. Buy at up to 25% off face value.</p>
+                        <p id="howItWorksDiscountLine">Browse discounted gift cards from top NZ retailers, priced by the sellers themselves.</p>
                     </div>
                     <div class="how-card">
                         <div class="how-num">3</div>
@@ -1466,6 +1491,26 @@
                         <div class="how-num">4</div>
                         <h3>Sellers Get Paid</h3>
                         <p>Once your card sells, we process your payout after a quick verification check.</p>
+                    </div>
+                </div>
+
+                <h2 class="how-verify-heading">How We Verify Every Card</h2>
+                <p class="section-subtitle">We never list a card without checking it first -- this is what actually happens behind the scenes.</p>
+                <div class="how-verify-grid">
+                    <div class="how-verify-step">
+                        <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+                        <h3>1. Seller submits card details</h3>
+                        <p>Card number, current balance, and a receipt or photo as evidence -- encrypted the moment it reaches us.</p>
+                    </div>
+                    <div class="how-verify-step">
+                        <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
+                        <h3>2. A real person checks the balance</h3>
+                        <p>We check it against the retailer's own official balance tool -- not an automated guess, a human confirming it's real.</p>
+                    </div>
+                    <div class="how-verify-step">
+                        <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                        <h3>3. Only then does it go live</h3>
+                        <p>A card is never listed for sale until this check is complete. If something doesn't match, it's rejected, not listed.</p>
                     </div>
                 </div>
             </div>
@@ -1491,6 +1536,7 @@
                 <span class="logo"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="9" width="18" height="12" rx="1.5" fill="#1F4D3A"/><rect x="3" y="9" width="18" height="4" rx="1" fill="#1F4D3A" opacity="0.75"/><rect x="10.5" y="9" width="3" height="12" fill="#10142E"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z" fill="#1F4D3A"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z" fill="#1F4D3A"/></svg></span><span class="logo-word">Giftlio</span></span>
                 <p>New Zealand's gift card marketplace.</p>
                 <a href="mailto:support@giftlio.co.nz" class="footer-email">support@giftlio.co.nz</a>
+                <button class="footer-guarantee-link" onclick="openBuyerProtectionModal()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/></svg>Protected by Giftlio Guarantee</button>
             </div>
             <div class="footer-links">
                 <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">How It Works</a>
