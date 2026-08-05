@@ -253,6 +253,41 @@
         </div>
     </div>
 
+    <!-- Retailer branding (colors) editor -->
+    <div class="modal-overlay hidden" id="brandingOverlay" onclick="closeBrandingModal()"></div>
+    <div class="modal hidden" id="brandingModal">
+        <button class="modal-close" aria-label="Close" onclick="closeBrandingModal()">×</button>
+        <h2 id="brandingTitle" style="color: var(--navy); margin-bottom: 4px;">Branding</h2>
+        <p class="section-subtitle" style="margin-bottom: 12px;">Controls how this retailer's badge looks everywhere in the app -- the homepage, the Sell page, and the Browse page all read from here live.</p>
+        <div id="brandingPreviewWrap" style="margin-bottom: 16px;"></div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="bColor">Primary color</label>
+                <input type="color" id="bColor" onchange="updateBrandingPreview()" oninput="updateBrandingPreview()">
+            </div>
+            <div class="form-group">
+                <label for="bTextColor">Text color</label>
+                <select id="bTextColor" onchange="updateBrandingPreview()">
+                    <option value="#ffffff">White</option>
+                    <option value="#000000">Black</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="checkbox-group" style="margin:0 0 8px;">
+                <input type="checkbox" id="bUseSplit" onchange="toggleSplitColorInput(); updateBrandingPreview()"> Use a two-color split design (like New World)
+            </label>
+        </div>
+        <div class="form-group hidden" id="bSecondaryColorGroup">
+            <label for="bSecondaryColor">Secondary color</label>
+            <input type="color" id="bSecondaryColor" onchange="updateBrandingPreview()" oninput="updateBrandingPreview()">
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px;">
+            <button class="btn btn-outline" onclick="closeBrandingModal()">Cancel</button>
+            <button class="btn btn-primary" id="bSaveBtn">Save Branding</button>
+        </div>
+    </div>
+
     <!-- Mobile Menu -->
     <div class="mobile-menu hidden" id="mobileMenu">
         <a href="/" onclick="event.preventDefault(); router('home'); toggleMobileMenu()">Home</a>
