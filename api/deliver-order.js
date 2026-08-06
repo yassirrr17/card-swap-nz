@@ -109,7 +109,7 @@ module.exports = async function handler(req, res) {
 
         const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
-                <h2 style="color:#1B4D3E;">Your ${order.brand} Gift Card</h2>
+                <h2 style="color:#10142E;">Your ${order.brand} Gift Card</h2>
                 <p>Thanks for your purchase from Giftlio! This card was manually verified before it was ever listed. Here are your details:</p>
                 <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin: 20px 0;">
                     <p><strong>Card Number:</strong> ${decryptedCardNumber}</p>
@@ -118,7 +118,7 @@ module.exports = async function handler(req, res) {
                     <p><strong>Expiry:</strong> ${card.expiry_date}</p>
                 </div>
                 <p style="text-align:center; margin: 24px 0;">
-                    <a href="${balanceCheckUrl}" style="display:inline-block; background:#1B4D3E; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Verify Your Balance</a>
+                    <a href="${balanceCheckUrl}" style="display:inline-block; background:#10142E; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Verify Your Balance</a>
                 </p>
                 <p>Please verify the balance within 48 hours of receiving this email. If anything's wrong, contact <a href="mailto:support@giftlio.co.nz">support@giftlio.co.nz</a> immediately and we'll make it right.</p>
                 <p style="text-align:center;">
