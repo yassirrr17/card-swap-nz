@@ -56,8 +56,8 @@ module.exports = async function handler(req, res) {
 
     const emailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto;">
-            <div style="background: #1B4D3E; padding: 20px; border-radius: 8px 8px 0 0;">
-                <h2 style="color: #C45C26; margin: 0;">New Contact Form Message</h2>
+            <div style="background: #10142E; padding: 20px; border-radius: 8px 8px 0 0;">
+                <h2 style="color: #D9B24C; margin: 0;">New Contact Form Message</h2>
             </div>
             <div style="padding: 20px; border: 1px solid #E8EAED; border-top: none; border-radius: 0 0 8px 8px;">
                 <p><strong>From:</strong> ${safeName} (${safeEmail})</p>
