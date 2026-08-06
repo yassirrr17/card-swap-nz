@@ -354,7 +354,7 @@ const SUPPORTED_BRANDS = ['The Warehouse', 'Woolworths', "Pak'nSave", 'New World
 function retailerBadgeHTML(brand) {
     const safeBrand = escapeHtml(brand);
     const config = AppState.brandDiscounts[brand];
-    const color = config?.brandColor || '#10142E';
+    const color = config?.brandColor || '#1B4D3E';
     const secondaryColor = config?.brandColorSecondary || null;
     const textColor = config?.brandTextColor || '#ffffff';
 
@@ -4781,7 +4781,7 @@ function openBrandingModal(brand) {
     currentBrandingEditTarget = brand;
     const config = AppState.brandDiscounts[brand] || {};
     document.getElementById('brandingTitle').textContent = `${brand} — Branding`;
-    document.getElementById('bColor').value = config.brandColor || '#10142E';
+    document.getElementById('bColor').value = config.brandColor || '#1B4D3E';
     document.getElementById('bTextColor').value = config.brandTextColor || '#ffffff';
     document.getElementById('bUseSplit').checked = Boolean(config.brandColorSecondary);
     document.getElementById('bSecondaryColor').value = config.brandColorSecondary || '#FFFFFF';
