@@ -27,7 +27,7 @@
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#1B4D3E">
+    <meta name="theme-color" content="#10142E">
     <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
     <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
 
@@ -39,7 +39,7 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -320,7 +320,11 @@
 
         <!-- HOME SECTION -->
         <section id="home-section" class="page-section">
-            <div class="hero">
+            <div class="hero hero-video">
+                <video class="hero-video-bg" autoplay muted loop playsinline preload="metadata" poster="/hero-poster.jpg" aria-hidden="true">
+                    <source src="/hero-shopping.mp4" type="video/mp4">
+                </video>
+                <div class="hero-video-overlay"></div>
                 <div class="hero-content">
                     <h1>Buy Discounted Gift Cards</h1>
                     <p class="hero-subtitle" id="heroSubtitle">NZ owned and operated — buy and sell gift cards, verified and secure</p>
