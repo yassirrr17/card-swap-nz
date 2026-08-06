@@ -1,34 +1,37 @@
 /* ===== CSS VARIABLES ===== */
 :root {
-    /* Rebrand: navy/gold -> forest-green/terracotta/cream, decided after
-       reviewing real rendered examples against live content. Variable
-       NAMES kept as --navy/--gold on purpose (matches the pattern already
-       used once before in this project) so every existing .btn-gold,
-       badge, and structural rule updates automatically through the
-       cascade, without needing to touch each one individually. */
-    --navy: #1B4D3E;
-    --navy-dark: #143D31;
-    --navy-light: #2A6B56;
-    --gold: #A34B1F;
-    --gold-dark: #7A3817;
-    --gold-light: #C45C26;
-    --charcoal: #2D2D2D;
+    /* Navy + white/light backgrounds + emerald accent -- replaces the
+       earlier cream/terracotta attempt after real research showed dark
+       backgrounds + gold read as trading-scam aesthetics, and orange as
+       a primary color undermines financial trust specifically. Navy on
+       light backgrounds, with a genuine emerald (not gold, not orange)
+       for CTAs, matches "Navy + Emerald + White" -- one of the specific
+       combinations research names as strong for exactly this kind of
+       platform. Variable NAMES kept stable (--navy/--gold) so the whole
+       cascade updates without touching every individual rule. */
+    --navy: #10142E;
+    --navy-dark: #0B0E24;
+    --navy-light: #171C3F;
+    --gold: #0A7A52;
+    --gold-dark: #075E3F;
+    --gold-light: #0FA36B;
+    --charcoal: #2B2D33;
     --white: #ffffff;
-    --font-heading: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+    --font-heading: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --gray-50: #F5F1EB;
-    --gray-100: #EDE8E0;
+    --gray-50: #f8f9fa;
+    --gray-100: #f1f3f4;
     --gray-200: #e8eaed;
     --gray-300: #dadce0;
     --gray-400: #bdc1c6;
-    --gray-500: #6B6B6B;
+    --gray-500: #71767a;
     --gray-600: #63686c;
     --gray-700: #5f6368;
     --gray-800: #3c4043;
     --gray-900: #202124;
     --green: #267c3d;
     --green-light: #e6f4ea;
-    --red: #B83232;
+    --red: #c4382c;
     --red-light: #fce8e6;
     --yellow: #fbbc04;
     --yellow-light: #fef3e8;
@@ -38,11 +41,11 @@
     --radius: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
-    --shadow-sm: 0 1px 2px rgba(45,45,45,0.05);
-    --shadow: 0 4px 12px rgba(45,45,45,0.08);
-    --shadow-md: 0 8px 24px rgba(45,45,45,0.12);
-    --shadow-lg: 0 16px 48px rgba(45,45,45,0.16);
-    --transition: all 0.25s ease;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+    --transition: all 0.2s ease;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
@@ -76,7 +79,7 @@ body {
        as an inline data URI so it's zero extra HTTP requests and scales
        crisply on any screen, including retina. */
     background-color: var(--gray-50);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='260' viewBox='0 0 180 260'%3E%3Cg fill='%231B4D3E' fill-opacity='0.025'%3E%3Cpath d='M90 250 L88 40' stroke='%231B4D3E' stroke-width='1.5' fill='none'/%3E%3Cellipse cx='78' cy='225' rx='11' ry='4' transform='rotate(-35 78 225)'/%3E%3Cellipse cx='101' cy='218' rx='11' ry='4' transform='rotate(35 101 218)'/%3E%3Cellipse cx='75' cy='195' rx='12' ry='4.3' transform='rotate(-33 75 195)'/%3E%3Cellipse cx='104' cy='188' rx='12' ry='4.3' transform='rotate(33 104 188)'/%3E%3Cellipse cx='73' cy='163' rx='13' ry='4.6' transform='rotate(-31 73 163)'/%3E%3Cellipse cx='106' cy='156' rx='13' ry='4.6' transform='rotate(31 106 156)'/%3E%3Cellipse cx='72' cy='130' rx='13.5' ry='4.8' transform='rotate(-29 72 130)'/%3E%3Cellipse cx='107' cy='124' rx='13.5' ry='4.8' transform='rotate(29 107 124)'/%3E%3Cellipse cx='73' cy='98' rx='12' ry='4.3' transform='rotate(-27 73 98)'/%3E%3Cellipse cx='105' cy='93' rx='12' ry='4.3' transform='rotate(27 105 93)'/%3E%3Cellipse cx='76' cy='70' rx='10' ry='3.6' transform='rotate(-24 76 70)'/%3E%3Cellipse cx='101' cy='66' rx='10' ry='3.6' transform='rotate(24 101 66)'/%3E%3Cellipse cx='80' cy='48' rx='7.5' ry='2.8' transform='rotate(-20 80 48)'/%3E%3Cellipse cx='97' cy='45' rx='7.5' ry='2.8' transform='rotate(20 97 45)'/%3E%3C/g%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='260' viewBox='0 0 180 260'%3E%3Cg fill='%2310142E' opacity='0.025'%3E%3Cpath d='M90 250 L88 40' stroke='%2310142E' stroke-width='1.5' fill='none'/%3E%3Cellipse cx='78' cy='225' rx='11' ry='4' transform='rotate(-35 78 225)'/%3E%3Cellipse cx='101' cy='218' rx='11' ry='4' transform='rotate(35 101 218)'/%3E%3Cellipse cx='75' cy='195' rx='12' ry='4.3' transform='rotate(-33 75 195)'/%3E%3Cellipse cx='104' cy='188' rx='12' ry='4.3' transform='rotate(33 104 188)'/%3E%3Cellipse cx='73' cy='163' rx='13' ry='4.6' transform='rotate(-31 73 163)'/%3E%3Cellipse cx='106' cy='156' rx='13' ry='4.6' transform='rotate(31 106 156)'/%3E%3Cellipse cx='72' cy='130' rx='13.5' ry='4.8' transform='rotate(-29 72 130)'/%3E%3Cellipse cx='107' cy='124' rx='13.5' ry='4.8' transform='rotate(29 107 124)'/%3E%3Cellipse cx='73' cy='98' rx='12' ry='4.3' transform='rotate(-27 73 98)'/%3E%3Cellipse cx='105' cy='93' rx='12' ry='4.3' transform='rotate(27 105 93)'/%3E%3Cellipse cx='76' cy='70' rx='10' ry='3.6' transform='rotate(-24 76 70)'/%3E%3Cellipse cx='101' cy='66' rx='10' ry='3.6' transform='rotate(24 101 66)'/%3E%3Cellipse cx='80' cy='48' rx='7.5' ry='2.8' transform='rotate(-20 80 48)'/%3E%3Cellipse cx='97' cy='45' rx='7.5' ry='2.8' transform='rotate(20 97 45)'/%3E%3C/g%3E%3C/svg%3E");
     background-repeat: repeat;
     background-size: 320px 460px;
     line-height: 1.6;
@@ -503,6 +506,41 @@ td[data-label="Action"] .btn + .btn {
     color: var(--white);
     padding: 120px 24px;
     text-align: center;
+}
+
+.hero-video {
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-video-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+}
+
+.hero-video-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(16,20,46,0.82) 0%, rgba(11,14,36,0.88) 100%);
+    z-index: 1;
+}
+
+.hero-video .hero-content {
+    position: relative;
+    z-index: 2;
+}
+
+/* Accessibility: some people genuinely get dizzy or distracted by motion.
+   Respect the OS-level preference -- hide the video entirely and fall
+   back to the plain navy gradient the .hero class already provides. */
+@media (prefers-reduced-motion: reduce) {
+    .hero-video-bg {
+        display: none;
+    }
 }
 
 .hero-content h1 {
