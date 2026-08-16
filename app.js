@@ -215,6 +215,68 @@ async function filterByBrand(brand) {
     await router('browse');
 }
 
+/**
+ * Post-auth redirect flag for the /sell landing page's CTA. Stored in
+ * localStorage (not sessionStorage) because Supabase's confirmation email
+ * opens in a new tab -- sessionStorage is per-tab and would lose the flag
+ * the moment that link is clicked, while localStorage is shared across
+ * tabs of the same browser. Timestamped so a flag left over from an
+ * abandoned signup attempt doesn't fire days later on an unrelated login.
+ */
+const SELLER_SUBMISSION_REDIRECT_KEY = 'giftlioPostAuthRedirect';
+const SELLER_SUBMISSION_REDIRECT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function setSellerSubmissionRedirect() {
+    localStorage.setItem(SELLER_SUBMISSION_REDIRECT_KEY, JSON.stringify({ target: 'seller-submit', ts: Date.now() }));
+}
+
+/**
+ * Reads and clears the flag in one step -- consumed or expired, it's gone
+ * either way, so a stale/corrupt entry can never linger past this check.
+ * Returns true only if a still-valid seller-submit redirect was pending.
+ */
+function consumeSellerSubmissionRedirect() {
+    const raw = localStorage.getItem(SELLER_SUBMISSION_REDIRECT_KEY);
+    if (!raw) return false;
+    localStorage.removeItem(SELLER_SUBMISSION_REDIRECT_KEY);
+    try {
+        const { target, ts } = JSON.parse(raw);
+        return target === 'seller-submit' && typeof ts === 'number' && Date.now() - ts <= SELLER_SUBMISSION_REDIRECT_TTL_MS;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The /sell landing page's single CTA. Logged-in sellers go straight to
+ * the Submit a Card tab -- not the dashboard overview, since a visitor who
+ * just clicked a "sell your card" button doesn't want to land on empty
+ * stats. Logged-out visitors go to signup with the redirect flag set, so
+ * they land on the same submission form once they've signed up and (if
+ * required) confirmed their email and logged in.
+ */
+function startSellerSubmission() {
+    if (AppState.currentUser) {
+        router('seller-dashboard').then(() => showSellerTab('submit'));
+        return;
+    }
+    setSellerSubmissionRedirect();
+    router('signup');
+}
+
+/**
+ * The /partners landing page's CTA. Reuses the existing contact form and
+ * endpoint as-is -- just pre-selects the "Partnership Enquiry" subject so
+ * these messages are distinguishable from support enquiries in the inbox,
+ * with no new field and no new endpoint.
+ */
+function goToPartnerContact() {
+    router('contact').then(() => {
+        const subjectSelect = document.getElementById('contactSubject');
+        if (subjectSelect) subjectSelect.value = 'Partnership Enquiry';
+    });
+}
+
 const PAGE_SECTION_MAP = {
     home: 'home-section',
     browse: 'browse-section',
@@ -227,6 +289,8 @@ const PAGE_SECTION_MAP = {
     orders: 'my-orders-section',
     'seller-dashboard': 'seller-dashboard-section',
     sell: 'sell-section',
+    buy: 'buy-section',
+    partners: 'partners-section',
     admin: 'admin-section',
     privacy: 'privacy-section',
     terms: 'terms-section',
@@ -251,6 +315,8 @@ const PAGE_TO_PATH = {
     orders: '/my-orders',
     'seller-dashboard': '/seller-dashboard',
     sell: '/sell',
+    buy: '/buy',
+    partners: '/partners',
     admin: '/admin-dashboard',
     privacy: '/privacy',
     terms: '/terms',
@@ -274,6 +340,8 @@ const PAGE_TITLES = {
     orders: 'My Orders — Giftlio',
     'seller-dashboard': 'Seller Dashboard — Giftlio',
     sell: 'Sell a Gift Card — Giftlio',
+    buy: 'Buy Discounted Gift Cards — Giftlio',
+    partners: 'Partner With Giftlio',
     admin: 'Admin — Giftlio',
     privacy: 'Privacy Policy — Giftlio',
     terms: 'Terms &amp; Conditions — Giftlio',
@@ -748,7 +816,12 @@ async function handleSignup() {
                 AppState.currentUser = await fetchProfile(data.session.user.id);
                 updateNavForUser();
                 showToast('success', 'Account created successfully!');
-                router('home');
+                if (consumeSellerSubmissionRedirect()) {
+                    await router('seller-dashboard');
+                    showSellerTab('submit');
+                } else {
+                    router('home');
+                }
                 return;
             }
 
@@ -791,7 +864,12 @@ async function handleLogin() {
 
             AppState.currentUser = await fetchProfile(data.user.id);
             updateNavForUser();
-            router('home');
+            if (consumeSellerSubmissionRedirect()) {
+                await router('seller-dashboard');
+                showSellerTab('submit');
+            } else {
+                router('home');
+            }
         });
     } catch (error) {
         setFieldError('loginPassword', 'loginPasswordError', 'Invalid email or password');
@@ -2178,6 +2256,11 @@ function showSellerTab(tab, event) {
     document.getElementById(targetTabId).classList.remove('hidden');
     if (event?.target) {
         event.target.classList.add('active');
+    } else {
+        // Called without a click event (e.g. startSellerSubmission()
+        // landing a visitor directly on a tab) -- find the matching
+        // sidebar button by its existing onclick attribute instead.
+        document.querySelector(`.sidebar-btn[onclick*="'${tab}'"]`)?.classList.add('active');
     }
 
     if (tab === 'submissions') renderSellerSubmissions();

@@ -1399,6 +1399,7 @@
                             <option>General Enquiry</option>
                             <option>Buying a Gift Card</option>
                             <option>Selling a Gift Card</option>
+                            <option>Partnership Enquiry</option>
                             <option>Report an Issue</option>
                             <option>Other</option>
                         </select>
@@ -1520,14 +1521,203 @@
             </div>
         </section>
 
-        <!-- SELL PAGE (redirect to dashboard or login) -->
+        <!-- SELL PAGE -->
         <section id="sell-section" class="page-section hidden">
-            <div class="container auth-container">
-                <div class="auth-box">
-                    <h1>Sell Your Gift Card</h1>
-                    <p>Turn your unwanted gift cards into cash.</p>
-                    <button class="btn btn-primary btn-large btn-full" onclick="checkAuthThen('seller-dashboard')">Get Started</button>
-                    <p class="auth-link"><a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">Learn more about selling</a></p>
+            <div class="container legal-page">
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
+                <h1>Sell Your Gift Card</h1>
+                <p class="legal-date">Turn a card you're never going to use into cash.</p>
+
+                <div class="legal-content">
+                    <p class="founder-lede">Giftlio is a New Zealand marketplace where people sell gift cards they don't want and buy them at a discount from people who do. If you've got a balance sitting on a card for a shop you never visit, you can submit it here and list it for sale.</p>
+
+                    <div class="notice-box">
+                        <p>Giftlio is currently testing its service with a limited number of New Zealand sellers and buyers. Retailer support, availability, verification times, and payout timing may be limited during the pilot.</p>
+                    </div>
+
+                    <h3>Who can submit a card</h3>
+                    <p>Any Giftlio account holder can submit a gift card for one of our supported retailers, provided the card is legally theirs to sell and the balance is accurate. You'll need to create a free account, or log in, before submitting.</p>
+
+                    <h3>Supported retailers</h3>
+                    <p>Giftlio currently supports gift cards from these retailers. Giftlio is an independent marketplace and isn't officially affiliated with any of them.</p>
+                    <ul>
+                        <li>The Warehouse</li>
+                        <li>Woolworths</li>
+                        <li>Pak'nSave</li>
+                        <li>New World</li>
+                        <li>Farmers</li>
+                        <li>Noel Leeming</li>
+                        <li>Briscoes</li>
+                        <li>Rebel Sport</li>
+                        <li>PB Tech</li>
+                    </ul>
+
+                    <h3>What you'll need to submit</h3>
+                    <ul>
+                        <li>The retailer, card value, and current balance</li>
+                        <li>The card's expiry date</li>
+                        <li>The card number, and PIN if the card has one</li>
+                        <li>A receipt or a photo of the card as evidence -- at least one is required</li>
+                        <li>Your own asking price -- on the Marketplace you set the price, and Giftlio takes a 10% commission once it sells</li>
+                    </ul>
+
+                    <h3>Verification and review</h3>
+                    <div class="how-verify-grid">
+                        <div class="how-verify-step">
+                            <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+                            <h3>1. You submit the details</h3>
+                            <p>Card number, balance, and a receipt or photo -- encrypted the moment it reaches us.</p>
+                        </div>
+                        <div class="how-verify-step">
+                            <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></div>
+                            <h3>2. We check the balance</h3>
+                            <p>Someone checks it against the retailer's own balance tool before it's listed for sale.</p>
+                        </div>
+                        <div class="how-verify-step">
+                            <div class="how-verify-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+                            <h3>3. It goes live, or it doesn't</h3>
+                            <p>If everything checks out, it's listed at your price. If not, it's rejected rather than listed.</p>
+                        </div>
+                    </div>
+
+                    <h3>Common reasons a submission is rejected</h3>
+                    <div class="safe-accordion">
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>
+                                <span class="safe-q-text">The balance doesn't match</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">The balance you entered doesn't match what the retailer's own balance tool shows.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+                                <span class="safe-q-text">Missing evidence</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">No receipt or card photo was provided, and one is required for this retailer.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></span>
+                                <span class="safe-q-text">The card has expired</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">Cards past their expiry date can't be verified or resold.</div>
+                        </div>
+                        <div class="safe-item">
+                            <button class="safe-q" onclick="toggleSafeItem(this)" aria-expanded="false">
+                                <span class="safe-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/></svg></span>
+                                <span class="safe-q-text">The retailer is temporarily unavailable</span>
+                                <svg class="safe-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+                            </button>
+                            <div class="safe-a">During the pilot, a retailer can be temporarily paused for submissions -- your card can be resubmitted once it reopens.</div>
+                        </div>
+                    </div>
+                    <p class="submission-rejected-note" style="margin-top:12px;">If a submission isn't approved, we'll email you the reason.</p>
+
+                    <h3>Getting paid</h3>
+                    <p>Once your card sells, payout is released 48 hours after it's delivered to the buyer, by bank transfer.</p>
+                </div>
+
+                <div class="cta-banner">
+                    <h2>Ready to turn your card into cash?</h2>
+                    <button class="btn btn-gold btn-large" onclick="startSellerSubmission()">Submit Your Card</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- BUY PAGE -->
+        <section id="buy-section" class="page-section hidden">
+            <div class="container legal-page">
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
+                <h1>Buy Gift Cards for Less</h1>
+                <p class="legal-date">Shop your favourite New Zealand retailers, at a discount, from real Kiwi sellers.</p>
+
+                <div class="legal-content">
+                    <p class="founder-lede">Giftlio is a marketplace where New Zealanders sell gift cards they're not going to use. As a buyer, you get to shop at those retailers for less than the card's face value.</p>
+
+                    <div class="notice-box">
+                        <p>Giftlio is currently testing its service with a limited number of New Zealand sellers and buyers. Retailer support, availability, verification times, and payout timing may be limited during the pilot.</p>
+                    </div>
+
+                    <h3>How the discount works</h3>
+                    <p>Every card is listed by a real seller who sets their own asking price -- so the discount you see on a listing reflects what they were willing to accept for it, not a fixed markdown Giftlio applies. Prices and discounts vary by listing.</p>
+
+                    <h3>How inventory becomes available</h3>
+                    <p>A card only becomes available to buy once it's passed verification. There's no fixed stock -- what's listed depends on what sellers have submitted and had approved, so availability can be limited, especially during the pilot.</p>
+
+                    <h3>What verification means</h3>
+                    <p>Before a card is listed for sale, someone checks its balance against the retailer's own balance-checking tool -- not an automated guess, a person confirming it against the source.</p>
+
+                    <h3>Supported retailers</h3>
+                    <p>Cards currently listed on Giftlio come from these retailers. Giftlio is an independent marketplace and isn't officially affiliated with any of them. Tap a retailer to see what's currently listed.</p>
+                    <div class="chip-row">
+                        <button class="filter-chip" onclick="filterByBrand('The Warehouse')">The Warehouse</button>
+                        <button class="filter-chip" onclick="filterByBrand('Woolworths')">Woolworths</button>
+                        <button class="filter-chip" onclick="filterByBrand('Pak\'nSave')">Pak'nSave</button>
+                        <button class="filter-chip" onclick="filterByBrand('New World')">New World</button>
+                        <button class="filter-chip" onclick="filterByBrand('Farmers')">Farmers</button>
+                        <button class="filter-chip" onclick="filterByBrand('Noel Leeming')">Noel Leeming</button>
+                        <button class="filter-chip" onclick="filterByBrand('Briscoes')">Briscoes</button>
+                        <button class="filter-chip" onclick="filterByBrand('Rebel Sport')">Rebel Sport</button>
+                        <button class="filter-chip" onclick="filterByBrand('PB Tech')">PB Tech</button>
+                    </div>
+
+                    <h3>Delivery</h3>
+                    <p>After you purchase, your gift card details are emailed to you once manual verification is complete -- typically within 24 hours, though this can take longer during the pilot.</p>
+
+                    <h3>If there's a problem</h3>
+                    <p>If a card's balance doesn't match once you have it, tell us within 48 hours of delivery and we'll make it right. As an NZ-registered business, Giftlio is bound by the Consumer Guarantees Act and Fair Trading Act, the same as any NZ retailer. A real person reads every message sent to support@giftlio.co.nz.</p>
+
+                    <h3>Payment</h3>
+                    <p>Payments run through Stripe -- Giftlio never sees or stores your card details.</p>
+                </div>
+
+                <div class="cta-banner">
+                    <h2>Ready to save on your next gift card?</h2>
+                    <button class="btn btn-gold btn-large" onclick="goToBrowse()">Browse Cards</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- PARTNERS PAGE -->
+        <section id="partners-section" class="page-section hidden">
+            <div class="container legal-page">
+                <button class="btn btn-back" onclick="router('home')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M15 18l-6-6 6-6"/></svg>Back to Home</button>
+                <h1>Partner With Giftlio</h1>
+                <p class="legal-date">For clubs, schools, charities, employers, and event organisers sitting on surplus vouchers.</p>
+
+                <div class="legal-content">
+                    <p class="founder-lede">If your organisation ends up with gift cards or vouchers that go unused -- leftover prizes, sponsorship perks, staff gifts nobody claimed -- Giftlio's marketplace gives you a way to turn them into cash instead of letting them expire in a drawer.</p>
+
+                    <div class="notice-box">
+                        <p>Giftlio is currently testing its service with a limited number of New Zealand sellers and buyers. Retailer support, availability, verification times, and payout timing may be limited during the pilot.</p>
+                    </div>
+
+                    <h3>Who we're looking to work with</h3>
+                    <ul>
+                        <li>Sports clubs and community groups with unused sponsor or prize vouchers</li>
+                        <li>Schools and PTAs with leftover fundraising or event vouchers</li>
+                        <li>Charities holding donated gift cards they can't use directly</li>
+                        <li>Employers with unclaimed staff reward or gift cards</li>
+                        <li>Event organisers with surplus prize or giveaway vouchers</li>
+                    </ul>
+
+                    <h3>What the pilot involves</h3>
+                    <p>During the pilot, an organisation works through Giftlio the same way an individual seller does: create an account, submit each voucher's details, and it goes through the same manual verification as any other submission before it's listed for sale. There's no separate bulk-upload process yet -- each card is submitted individually.</p>
+
+                    <h3>Support and availability</h3>
+                    <p>We're taking on a limited number of organisations during the pilot, and support is currently handled directly by our small team rather than a dedicated partnerships desk. Response times and retailer coverage may vary while we're still testing.</p>
+
+                    <h3>Get in touch</h3>
+                    <p>If this sounds like a fit for your organisation, send us a message and tell us a bit about what you're working with -- we'll reply from there.</p>
+                </div>
+
+                <div class="cta-banner">
+                    <h2>Have surplus vouchers to talk about?</h2>
+                    <button class="btn btn-gold btn-large" onclick="goToPartnerContact()">Get in Touch</button>
                 </div>
             </div>
         </section>
@@ -1544,6 +1734,9 @@
             </div>
             <div class="footer-links">
                 <a href="/how-it-works" onclick="event.preventDefault(); router('how-it-works')">How It Works</a>
+                <a href="/buy" onclick="event.preventDefault(); router('buy')">Buy Gift Cards</a>
+                <a href="/sell" onclick="event.preventDefault(); router('sell')">Sell a Gift Card</a>
+                <a href="/partners" onclick="event.preventDefault(); router('partners')">Partners</a>
                 <a href="/about" onclick="event.preventDefault(); router('about')">About</a>
                 <a href="/privacy" onclick="event.preventDefault(); router('privacy')">Privacy Policy</a>
                 <a href="/terms" onclick="event.preventDefault(); router('terms')">Terms & Conditions</a>

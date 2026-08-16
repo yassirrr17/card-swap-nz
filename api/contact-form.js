@@ -4,7 +4,7 @@
 
 const MAX_NAME_LENGTH = 100;
 const MAX_MESSAGE_LENGTH = 5000;
-const VALID_SUBJECTS = ['General Enquiry', 'Buying a Gift Card', 'Selling a Gift Card', 'Report an Issue', 'Other'];
+const VALID_SUBJECTS = ['General Enquiry', 'Buying a Gift Card', 'Selling a Gift Card', 'Partnership Enquiry', 'Report an Issue', 'Other'];
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function escapeHtml(str) {
