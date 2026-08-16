@@ -6214,6 +6214,19 @@ async function initializeApp() {
         return;
     }
 
+    // Supabase's email-confirmation link auto-establishes a session directly
+    // from URL tokens (detectSessionInUrl: true, see supabase-client.js) --
+    // that flow never calls handleSignup() or handleLogin(), so a pending
+    // seller-submission redirect has to be checked here too, on first load,
+    // or it would only ever fire for a manual login and never for a
+    // confirmation-link click. AppState.currentUser is already set by
+    // checkAuth() above by this point.
+    if (AppState.currentUser && consumeSellerSubmissionRedirect()) {
+        await router('seller-dashboard', { historyMode: 'replace' });
+        showSellerTab('submit');
+        return;
+    }
+
     await initializeRouting();
 }
 
