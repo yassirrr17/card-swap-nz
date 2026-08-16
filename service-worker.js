@@ -18,7 +18,10 @@
  *   cache.
  */
 
-const CACHE_VERSION = 'v5';
+// Overwritten at build time by scripts/stamp-sw-version.js with the
+// current deploy's commit SHA -- this placeholder only shows up if
+// that script didn't run (e.g. serving the raw repo file directly).
+const CACHE_VERSION = 'unstamped-dev-build';
 const STATIC_CACHE = `cardswap-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `cardswap-runtime-${CACHE_VERSION}`;
 

@@ -7,7 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
-    "build": "node scripts/generate-env.js"
+    "build": "node scripts/generate-env.js && node scripts/stamp-sw-version.js"
   },
   "dependencies": {
     "stripe": "^17.0.0",

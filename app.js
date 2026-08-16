@@ -5989,10 +5989,17 @@ const INSTALL_DISMISS_DAYS = 14;
 function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
 
+    let swRegistration = null;
+
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js').catch((error) => {
-            console.error('Service worker registration failed:', error);
-        });
+        navigator.serviceWorker
+            .register('service-worker.js')
+            .then((registration) => {
+                swRegistration = registration;
+            })
+            .catch((error) => {
+                console.error('Service worker registration failed:', error);
+            });
     });
 
     // Because the service worker already calls skipWaiting() + clients.claim()
@@ -6009,6 +6016,27 @@ function registerServiceWorker() {
         hasShownUpdateBanner = true;
         showUpdateAvailableBanner();
     });
+
+    // The browser's own update check is tied to navigation and a roughly
+    // 24h internal heuristic -- an installed PWA that's only ever resumed
+    // from the background (not actually closed and relaunched) may never
+    // navigate again, so that check might not run for a long time on its
+    // own. Proactively asking the registration to check for a new version
+    // whenever the app regains focus covers the common "resumed, not
+    // relaunched" case; the hourly timer is a safety net for sessions left
+    // open (and foregrounded) even longer than that. update() is a no-op
+    // if nothing's changed, so this is cheap either way.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && swRegistration) {
+            swRegistration.update().catch(() => {});
+        }
+    });
+
+    setInterval(() => {
+        if (swRegistration) {
+            swRegistration.update().catch(() => {});
+        }
+    }, 60 * 60 * 1000);
 }
 
 function showUpdateAvailableBanner() {
