@@ -448,7 +448,7 @@ const STATUS_MAP = {
         sold: 'Sold'
     },
     order: {
-        pending_verification: 'Pending Verification',
+        pending_verification: 'Pending Review',
         delivered: 'Delivered',
         refunded: 'Refunded'
     },
@@ -1078,24 +1078,8 @@ function getBrandVerification(brand) {
 }
 
 function renderListingCard(listing) {
-    const safeSeller = escapeHtml(listing.seller || 'Verified Seller');
-    const { verification, note } = getBrandVerification(listing.brand);
-    const isInstant = verification === 'instant';
-    const verifyBadge = isInstant
-        ? `<span class="card-verify instant" title="${escapeHtml(note)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Instant verified</span>`
-        : `<span class="card-verify manual" title="${escapeHtml(note)}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Manually verified</span>`;
-
-    // PB Tech's balance-check process (add to cart, apply the card) is
-    // different enough from a standard online checker that buyers might
-    // wonder why -- a quick explanation reassures them the result is the
-    // same regardless of method.
-    const infoTooltip =
-        listing.brand === 'PB Tech'
-            ? `<span class="card-info-tip" tabindex="0" role="button" aria-label="How this card was verified">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                <span class="card-info-tip-bubble">Verified by adding the card to a PB Tech cart and applying it -- a more manual check, but just as reliable.</span>
-               </span>`
-            : '';
+    const safeSeller = escapeHtml(listing.seller || 'Giftlio Seller');
+    const verifyBadge = `<span class="card-verify"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Reviewed by Giftlio</span>`;
 
     // Retailer-level kill switch, checked from the SAME single source of
     // truth every other page reads (AppState.brandDiscounts, loaded via
@@ -1123,7 +1107,7 @@ function renderListingCard(listing) {
                     <span class="gst-note">GST included</span>
                 </div>
                 <div class="listing-seller-verified">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Verified · ${safeSeller}${listing.cardsSold > 0 ? ` · ${listing.cardsSold} card${listing.cardsSold === 1 ? '' : 's'} sold` : ''}${infoTooltip}
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px; margin-right:3px;"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>Listed by ${safeSeller}${listing.cardsSold > 0 ? ` · ${listing.cardsSold} card${listing.cardsSold === 1 ? '' : 's'} sold` : ''}
                 </div>
                 ${buyButton}
             </div>
@@ -1191,15 +1175,10 @@ async function renderHome() {
     const categoryGrid = document.getElementById('categoryGrid');
     categoryGrid.innerHTML = Object.entries(CATEGORIES)
         .map(([key, cat]) => {
-            const isInstant = cat.verification === 'instant';
-            const verifyBadge = isInstant
-                ? `<span class="cat-verify instant"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Instant online check</span>`
-                : `<span class="cat-verify manual"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Manually verified</span>`;
             return `
         <div class="category-card" tabindex="0" role="button" aria-label="Browse ${escapeHtml(cat.label)} category: ${cat.brands.map(escapeHtml).join(', ')}" onclick="filterByCategory('${key}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); filterByCategory('${key}');}">
             <h3>${escapeHtml(cat.label)}</h3>
             <p class="cat-brands">${cat.brands.map(escapeHtml).join(' · ')}</p>
-            ${verifyBadge}
         </div>
     `;
         })
@@ -1444,7 +1423,7 @@ function renderBrowseEmptyState(isDatabaseEmpty) {
         empty.innerHTML = `
             <div class="empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1.5"/><rect x="3" y="9" width="18" height="4" rx="1"/><path d="M10.5 9V21"/><path d="M13.5 9V21"/><path d="M12 9C12 9 8 8 8 5.5C8 4 9.3 3 10.5 3.5C11.7 4 12 6 12 9Z"/><path d="M12 9C12 9 16 8 16 5.5C16 4 14.7 3 13.5 3.5C12.3 4 12 6 12 9Z"/></svg></div>
             <p class="empty-title">No gift cards available right now</p>
-            <p class="empty-sub">Be the first to sell one! It only takes a couple of minutes, and every card is manually verified before it goes live.</p>
+            <p class="empty-sub">Be the first to sell one! It only takes a couple of minutes, and every submission is reviewed by a Giftlio admin before it goes live.</p>
             <button class="btn btn-primary" onclick="router('sell')">Sell a Gift Card</button>
         `;
     } else {
@@ -1660,12 +1639,12 @@ async function viewListing(id, options = {}) {
                     </div>
                     <div class="detail-section">
                         <h3>Description</h3>
-                        <p>This is a genuine ${safeBrand} gift card with a verified balance. Card details will be delivered via email within 24 hours of purchase after manual verification.</p>
+                        <p>This ${safeBrand} gift card was reviewed and approved by a Giftlio admin before being listed. Card details will be delivered via email within 24 hours of purchase.</p>
                     </div>
                     <div class="detail-section trust-icon-row">
                         <div class="trust-icon-item">
                             <span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg></span>
-                            <p>Balance<br>verified</p>
+                            <p>Reviewed<br>by Giftlio</p>
                         </div>
                         <div class="trust-icon-item">
                             <span><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
@@ -1688,7 +1667,7 @@ async function viewListing(id, options = {}) {
                                 <div class="dp-number">•••• •••• •••• <span class="dp-last4">7719</span></div>
                                 <span class="dp-balance-stamp">
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 9l2 2 4-4"/></svg>
-                                    Verified Balance: ${formatCurrency(listing.faceValue)}
+                                    Balance: ${formatCurrency(listing.faceValue)}
                                 </span>
                             </div>
                             <p class="delivery-preview-note">Full card number and PIN are only ever shown inside your own Giftlio account after purchase — never in the pre-purchase preview.</p>
@@ -1953,7 +1932,7 @@ async function renderOrders() {
             empty.classList.add('hidden');
 
             const badgeClass = {
-                'Pending Verification': 'badge-yellow',
+                'Pending Review': 'badge-yellow',
                 Delivered: 'badge-green',
                 Refunded: 'badge-red'
             };
@@ -2013,7 +1992,7 @@ async function viewOrderDetail(orderDbId) {
                     <p><strong>Card Value:</strong> ${formatCurrency(order.faceValue)}</p>
                     <p><strong>Price Paid:</strong> ${formatCurrency(order.total)} (includes ${formatCurrency(order.serviceFee)} fee, GST included)</p>
                     <p><strong>Purchase Date:</strong> ${new Date(order.date).toLocaleString('en-NZ')}</p>
-                    <p><strong>Status:</strong> <span class="badge ${order.status === 'Pending Verification' ? 'badge-yellow' : order.status === 'Delivered' ? 'badge-green' : 'badge-red'}">${order.status}</span></p>
+                    <p><strong>Status:</strong> <span class="badge ${order.status === 'Pending Review' ? 'badge-yellow' : order.status === 'Delivered' ? 'badge-green' : 'badge-red'}">${order.status}</span></p>
                     <p><strong>Delivery Email:</strong> ${order.buyerEmail}</p>
                 </div>
                 ${
@@ -2028,7 +2007,7 @@ async function viewOrderDetail(orderDbId) {
                 `
                         : `
                     <div style="background: var(--yellow-light); padding: 16px; border-radius: var(--radius); margin-bottom: 20px;">
-                        <p>Your card is being verified. You will receive an email within 24 hours with the gift card details.</p>
+                        <p>Your card is being reviewed. You will receive an email within 24 hours with the gift card details.</p>
                     </div>
                 `
                 }
@@ -2722,7 +2701,7 @@ async function handleSubmission() {
             sellerId: AppState.currentUser.id,
             sellerSubject: `We've received your ${brand} card submission`,
             sellerBody: `<p>Hi ${escapeHtml(AppState.currentUser.name)},</p>
-             <p>We've received your ${escapeHtml(brand)} gift card submission (#${escapeHtml(submissionPublicId)}) and it's now being manually verified. We'll email you as soon as it's reviewed.</p>`
+             <p>We've received your ${escapeHtml(brand)} gift card submission (#${escapeHtml(submissionPublicId)}) and it's now being reviewed. We'll email you as soon as it's been looked at.</p>`
         });
 
         // Seller verification queue: a new/unverified seller submitting a
@@ -2745,9 +2724,9 @@ async function handleSubmission() {
             }
         }
 
-        showToast('success', `Your gift card has been submitted for manual verification. Submission ID: ${submissionPublicId}`);
+        showToast('success', `Your gift card has been submitted for review. Submission ID: ${submissionPublicId}`);
         if (justFlagged) {
-            showToast('info', 'Since this is a higher-value submission on a new account, our team will do an extra verification check before approving.');
+            showToast('info', 'Since this is a higher-value submission on a new account, our team will take an extra look before approving.');
         }
         document.getElementById('submissionForm').reset();
         document.getElementById('fileName').textContent = '';
@@ -2852,14 +2831,14 @@ function renderSubmissionCard(s, listingInfo) {
     const stages = isMarketplace
         ? [
               { key: 'submitted', label: 'Submitted', done: true },
-              { key: 'verified', label: 'Being Verified', done: !isPending },
+              { key: 'verified', label: 'Under Review', done: !isPending },
               { key: 'listed', label: 'Listed for Sale', done: isListed },
               { key: 'sold', label: 'Sold to Buyer', done: isSold },
               { key: 'payout', label: 'Payout Released', done: isPayoutReleased }
           ]
         : [
               { key: 'submitted', label: 'Submitted', done: true },
-              { key: 'verified', label: 'Verified by Giftlio', done: !isPending },
+              { key: 'verified', label: 'Reviewed by Giftlio', done: !isPending },
               { key: 'payout', label: 'Payout Sent', done: isPayoutReleased },
               { key: 'listed', label: 'Listed for Resale', done: isListed },
               { key: 'sold', label: 'Sold to Buyer', done: isSold }
@@ -2912,7 +2891,7 @@ function renderSubmissionCard(s, listingInfo) {
                     .join('')}
             </div>
             <p class="submission-offer">${isMarketplace ? 'Your payout' : 'Your offer'}: <strong>${formatCurrency(s.offerAmount)}</strong>${
-        isMarketplace ? (isSold ? ' — paid out' : ' (paid once sold)') : isApproved ? ' — paid out' : ' (paid once verified)'
+        isMarketplace ? (isSold ? ' — paid out' : ' (paid once sold)') : isApproved ? ' — paid out' : ' (paid once approved)'
     }</p>
             ${
                 listingStatus
@@ -5357,7 +5336,7 @@ async function approveSubmission(submissionDbId) {
             sellerId: sub.sellerId,
             sellerSubject: `Your ${sub.brand} card submission was approved!`,
             sellerBody: `<p>Hi ${escapeHtml(sub.sellerName)},</p>
-             <p>Good news — your ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.id)}) has been verified and approved.</p>
+             <p>Good news — your ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.id)}) has been reviewed and approved.</p>
              ${
                  sub.saleMode === 'marketplace'
                      ? `<p>It's now live on the Giftlio marketplace at your asking price. You'll be paid <strong>${formatCurrency(sub.offerAmount)}</strong> once a buyer purchases it -- we'll email you the moment that happens.</p>`

@@ -110,7 +110,7 @@ module.exports = async function handler(req, res) {
         const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
                 <h2 style="color:#10142E;">Your ${order.brand} Gift Card</h2>
-                <p>Thanks for your purchase from Giftlio! This card was manually verified before it was ever listed. Here are your details:</p>
+                <p>Thanks for your purchase from Giftlio! This card was reviewed and approved by our team before it was ever listed. Here are your details:</p>
                 <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin: 20px 0;">
                     <p><strong>Card Number:</strong> ${decryptedCardNumber}</p>
                     ${decryptedPin ? `<p><strong>PIN:</strong> ${decryptedPin}</p>` : ''}
