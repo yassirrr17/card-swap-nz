@@ -2491,6 +2491,18 @@ tr:hover td {
     color: var(--gold);
 }
 
+/* ===== AUDIENCE LANDING PAGES (Sell / Buy / Partners) =====
+   These pages reuse .legal-page, .legal-content, .notice-box,
+   .how-verify-grid, .safe-accordion and .filter-chip wholesale --
+   .chip-row is the one new addition, a plain flex-wrap wrapper for a
+   row of retailer chips. */
+.chip-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 16px 0 8px;
+}
+
 /* ===== HOW IT WORKS TEASER (homepage link to the single full page) ===== */
 .how-it-works-teaser {
     text-align: center;
