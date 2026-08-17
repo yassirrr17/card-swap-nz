@@ -75,7 +75,7 @@ Run through this yourself, with two real accounts (a seller and a buyer), before
 - [ ] Buy it with a second (buyer) account, using a real Stripe test card
 - [ ] Confirm the buyer receives a real order confirmation / delivery email
 - [ ] Confirm the order shows up correctly in Admin → Active Listings as sold, and in the buyer's Order History
-- [ ] Check Admin → Email Notifications — if anything shows `failed`, don't launch until you know why (almost certainly the Resend domain issue in section 5)
+- [ ] Check Admin → Email Notifications — if anything shows `failed`, don't launch until you know why (almost certainly the Resend domain issue in section 5). Failed rows can be resent from here: a per-row "Retry" button retries just that email, "Retry All Failed" retries every failed row (up to 5 attempts each) — both call `api/retry-failed-emails.js`. There's no scheduled retry job wired up yet, so a failed email stays failed until someone clicks one of these.
 - [ ] Check Admin → Audit Log — confirm the approval action you just took is actually logged
 
 If every one of those is true with real emails landing in real inboxes, the core loop works end-to-end. If you skip this and only check that the code runs without errors, you won't catch the difference between "the function returned 200" and "the seller actually got an email."
