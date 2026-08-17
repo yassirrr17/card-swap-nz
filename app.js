@@ -6190,7 +6190,13 @@ function setupOfflineDetection() {
     updateOnlineStatus();
 }
 
+function renderBuildMarker() {
+    const marker = document.getElementById('buildMarker');
+    if (marker) marker.textContent = `Build ${(window.GIFTLIO_BUILD_ID || 'dev').slice(0, 7)}`;
+}
+
 async function initializeApp() {
+    renderBuildMarker();
     registerServiceWorker();
     setupPWAInstall();
     setupOfflineDetection();

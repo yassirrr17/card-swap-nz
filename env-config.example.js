@@ -6,3 +6,4 @@
 // Project Settings. Do not commit a real env-config.js.
 window.SUPABASE_URL = "https://your-project.supabase.co";
 window.SUPABASE_ANON_KEY = "your-anon-key";
+window.GIFTLIO_BUILD_ID = "local-dev";
