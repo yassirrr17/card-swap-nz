@@ -85,6 +85,6 @@ If every one of those is true with real emails landing in real inboxes, the core
 These aren't blockers for testing, but are real and worth tracking:
 
 - **CORS is hardcoded** to `https://card-swap-nz.vercel.app` in `vercel.json`. If you add a custom domain, that line needs updating or your own API calls will start getting blocked by the browser.
-- **Card numbers and PINs are stored as plain text** in the database. Fine for testing, a real risk once genuine cards are flowing through — worth encrypting at rest before real volume.
+- **Card numbers and PINs are encrypted at rest** (`20260803020000_encrypt_card_data_at_rest.sql` — `BEFORE INSERT` triggers on `submissions` and `card_vault`, key in Supabase Vault, `decrypt_card_value()` gated to admin sessions and the service role). Pre-migration test rows were retroactively encrypted (or deleted, where genuinely unused) in `20260817120000_encrypt_legacy_plaintext_card_data.sql`. Nothing plaintext remains in either table as of that migration.
 - **Legal footing on reselling gift cards** is genuinely a gray area — most retailers' own terms restrict resale of their cards. Worth 30 minutes with an NZ small-business lawyer before real money moves at volume, not after.
 - **Resend domain verification** (section 5) — until this is done, no seller or buyer has ever received a real email from this platform, regardless of how correct the code is.
