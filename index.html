@@ -1255,6 +1255,33 @@
                     <button class="modal-close" aria-label="Close" onclick="closeSellerHistoryModal()">×</button>
                     <div id="sellerHistoryContent"></div>
                 </div>
+
+                <!-- Record Balance Check modal, opened from a pending submission row -->
+                <div class="modal-overlay hidden" id="balanceCheckOverlay" onclick="closeBalanceCheckModal()"></div>
+                <div class="modal hidden" id="balanceCheckModal">
+                    <button class="modal-close" aria-label="Close" onclick="closeBalanceCheckModal()">×</button>
+                    <h2 id="balanceCheckModalTitle" style="color: var(--navy); margin-bottom: 12px;">Record Balance Check</h2>
+                    <p style="margin-bottom: 16px;">Claimed balance: <strong id="balanceCheckClaimed"></strong></p>
+                    <div class="form-group">
+                        <label for="balanceCheckInput">Balance you read off the retailer's page</label>
+                        <input type="number" id="balanceCheckInput" step="0.01" min="0" />
+                        <span class="error-msg" id="balanceCheckError"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="balanceCheckNotesInput">Notes (optional)</label>
+                        <textarea id="balanceCheckNotesInput" rows="3"></textarea>
+                    </div>
+                    <div style="margin-top: 16px;">
+                        <button class="btn btn-primary" onclick="submitBalanceCheck()">Save Check</button>
+                    </div>
+                </div>
+
+                <!-- Balance check history modal, opened from Active Listings -->
+                <div class="modal-overlay hidden" id="balanceCheckHistoryOverlay" onclick="closeBalanceCheckHistoryModal()"></div>
+                <div class="modal hidden" id="balanceCheckHistoryModal">
+                    <button class="modal-close" aria-label="Close" onclick="closeBalanceCheckHistoryModal()">×</button>
+                    <div id="balanceCheckHistoryContent"></div>
+                </div>
             </div>
         </section>
 

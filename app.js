@@ -465,6 +465,19 @@ function formatCurrency(value = 0) {
     return `$${Number(value).toFixed(2)}`;
 }
 
+const BALANCE_CHECK_STALE_DAYS = 7;
+const CHECK_TYPE_LABELS = { submission: 'Submission review', pre_delivery: 'Pre-delivery', post_delivery: 'Post-delivery' };
+
+function daysSince(dateStr) {
+    return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function formatDaysAgo(days) {
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    return `${days} days ago`;
+}
+
 function escapeHtml(value = '') {
     return String(value)
         .replaceAll('&', '&amp;')
@@ -3314,13 +3327,17 @@ async function renderAdmin() {
 
     try {
         await withLoading(async () => {
-            const [usersRes, listingsRes, submissionsRes, ordersRes, , emailQueueRes] = await Promise.all([
+            const [usersRes, listingsRes, submissionsRes, ordersRes, , emailQueueRes, balanceChecksRes] = await Promise.all([
                 supabaseClient.from('profiles').select('id, name, email, role, created_at, suspended, verification_status'),
                 supabaseClient.from('listings').select('*'),
                 supabaseClient.from('submissions').select('*').is('deleted_at', null),
                 supabaseClient.from('orders').select('*'),
                 loadBrandDiscounts(),
-                supabaseClient.from('email_queue').select('id, status')
+                supabaseClient.from('email_queue').select('id, status'),
+                supabaseClient
+                    .from('balance_checks')
+                    .select('submission_id, listing_id, claimed_balance, checked_balance, status, created_at')
+                    .order('created_at', { ascending: false })
             ]);
             if (!emailQueueRes.error) AppState.emailQueueRows = emailQueueRes.data || [];
 
@@ -3333,6 +3350,22 @@ async function renderAdmin() {
             const listings = (listingsRes.data || []).map(listingRowToView);
             const submissions = (submissionsRes.data || []).map(submissionRowToView);
             const orders = (ordersRes.data || []).map(orderRowToView);
+
+            // Latest-only maps, keyed both ways -- a listing's freshest check
+            // might be the one taken at submission review (keyed by
+            // submission_id, before the listing even existed) or a later
+            // pre/post-delivery one (keyed by listing_id). Rows already come
+            // back newest-first, so the first hit per key IS the latest.
+            const latestBalanceCheckBySubmission = new Map();
+            const latestBalanceCheckByListing = new Map();
+            if (!balanceChecksRes.error) {
+                (balanceChecksRes.data || []).forEach((c) => {
+                    if (c.submission_id && !latestBalanceCheckBySubmission.has(c.submission_id)) latestBalanceCheckBySubmission.set(c.submission_id, c);
+                    if (c.listing_id && !latestBalanceCheckByListing.has(c.listing_id)) latestBalanceCheckByListing.set(c.listing_id, c);
+                });
+            }
+            AppState.latestBalanceCheckBySubmission = latestBalanceCheckBySubmission;
+            AppState.latestBalanceCheckByListing = latestBalanceCheckByListing;
 
             // Cached once per admin visit rather than re-fetched on every
             // sidebar click -- switching pages should feel instant, not
@@ -3937,6 +3970,23 @@ function renderEvidenceIcons(s) {
 }
 
 /**
+ * Shows the most recent balance check recorded for a pending submission,
+ * if any -- green when the admin's reading matched what the seller
+ * claimed, red when it didn't. No staleness concept here: a submission is
+ * being reviewed right now, so any check on file is by definition current.
+ * Staleness only matters once a card has been sitting live as a listing
+ * (see renderBalanceCheckBadge).
+ */
+function renderSubmissionBalanceCheckBadge(submissionDbId) {
+    const latest = AppState.latestBalanceCheckBySubmission?.get(submissionDbId);
+    if (!latest || latest.checked_balance === null) return '';
+    const mismatch = Number(latest.checked_balance) !== Number(latest.claimed_balance);
+    return mismatch
+        ? `<br><span class="badge badge-red" title="Checked ${formatDaysAgo(daysSince(latest.created_at))}">Mismatch: ${formatCurrency(latest.checked_balance)} vs claimed ${formatCurrency(latest.claimed_balance)}</span>`
+        : `<br><span class="badge badge-green" title="Checked ${formatDaysAgo(daysSince(latest.created_at))}">Checked: ${formatCurrency(latest.checked_balance)}</span>`;
+}
+
+/**
  * Fraud signal: sellers who've submitted 3+ cards in the last 24 hours,
  * computed from the admin's already-loaded submissions data (no extra
  * fetch). Used to show a red "High Volume" badge next to their name in
@@ -4018,7 +4068,7 @@ function renderInstantPendingTable(freshData) {
                         <td data-label="Seller">${escapeHtml(s.sellerName)}${highVolumeSellerIds.has(s.sellerId) ? ' <span class="badge badge-red" title="3 or more submissions in the last 24 hours">High Volume</span>' : ''}${isOldCard(s.issueDate) ? ' <span class="badge badge-yellow" title="Card issued more than 3 years ago -- review carefully">Old Card</span>' : ''}</td>
                         <td data-label="Brand">${escapeHtml(s.brand)}</td>
                         <td data-label="Value">${formatCurrency(s.faceValue)}</td>
-                        <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
+                        <td data-label="Balance">${formatCurrency(s.currentBalance)}${renderSubmissionBalanceCheckBadge(s.dbId)}</td>
                         <td data-label="Calculated Offer"><strong>${formatCurrency(s.offerAmount)}</strong></td>
                         <td data-label="Expiry">${s.expiryDate}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
@@ -4026,6 +4076,7 @@ function renderInstantPendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Approve</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                            <button class="btn btn-outline btn-sm" onclick="openRecordBalanceCheckModal('${s.dbId}', ${s.currentBalance}, '${escapeJsString(s.brand)}')">Record Balance Check</button>
                             ${renderEvidenceIcons(s)}
                         </td>
                     </tr>
@@ -4094,7 +4145,7 @@ function renderMarketplacePendingTable(freshData) {
                         <td data-label="ID">${s.id}</td>
                         <td data-label="Seller">${escapeHtml(s.sellerName)}${highVolumeSellerIds.has(s.sellerId) ? ' <span class="badge badge-red" title="3 or more submissions in the last 24 hours">High Volume</span>' : ''}</td>
                         <td data-label="Brand">${escapeHtml(s.brand)}</td>
-                        <td data-label="Balance">${formatCurrency(s.currentBalance)}</td>
+                        <td data-label="Balance">${formatCurrency(s.currentBalance)}${renderSubmissionBalanceCheckBadge(s.dbId)}</td>
                         <td data-label="Seller's Price"><strong>${s.sellerSetPrice != null ? formatCurrency(s.sellerSetPrice) : '—'}</strong></td>
                         <td data-label="Expiry">${s.expiryDate}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
@@ -4102,6 +4153,7 @@ function renderMarketplacePendingTable(freshData) {
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Verify &amp; List</button>
                             <button class="btn btn-outline btn-sm btn-danger-outline" onclick="rejectSubmission('${s.dbId}')">Reject</button>
                             <button class="btn btn-outline btn-sm" onclick="deleteSubmission('${s.dbId}')">Delete</button>
+                            <button class="btn btn-outline btn-sm" onclick="openRecordBalanceCheckModal('${s.dbId}', ${s.currentBalance}, '${escapeJsString(s.brand)}')">Record Balance Check</button>
                             ${renderEvidenceIcons(s)}
                         </td>
                     </tr>
@@ -4469,6 +4521,49 @@ async function retryAllFailedEmails() {
     }
 }
 
+/**
+ * A listing's freshest balance check might be the one taken at submission
+ * review (keyed by submission_id, recorded before the listing even
+ * existed) or a later pre/post-delivery one (keyed by listing_id) --
+ * whichever is more recent wins.
+ */
+function getLatestBalanceCheckForListing(listing) {
+    const bySubmission = listing.submissionId ? AppState.latestBalanceCheckBySubmission?.get(listing.submissionId) : null;
+    const byListing = AppState.latestBalanceCheckByListing?.get(listing.id);
+    if (!bySubmission) return byListing || null;
+    if (!byListing) return bySubmission;
+    return new Date(byListing.created_at) > new Date(bySubmission.created_at) ? byListing : bySubmission;
+}
+
+/**
+ * The fraud case this exists for: a seller lists a genuine card, then
+ * drains it weeks later. A green "checked" tick from a month ago would be
+ * actively misleading in that scenario, so a check older than
+ * BALANCE_CHECK_STALE_DAYS is shown as stale (red), never as reassuring
+ * green, regardless of what it found at the time.
+ */
+function renderBalanceCheckBadge(listing) {
+    const latest = getLatestBalanceCheckForListing(listing);
+    const listingAgeDays = daysSince(listing.createdAt);
+
+    if (!latest || latest.checked_balance === null) {
+        return listingAgeDays > BALANCE_CHECK_STALE_DAYS
+            ? `<span class="badge badge-red" title="No balance check has ever been recorded for this listing">Never checked</span>`
+            : `<span class="badge badge-gray" title="Listed ${formatDaysAgo(listingAgeDays)} -- not checked yet">Not yet checked</span>`;
+    }
+
+    const ageDays = daysSince(latest.created_at);
+    const mismatch = Number(latest.checked_balance) !== Number(latest.claimed_balance);
+
+    if (ageDays > BALANCE_CHECK_STALE_DAYS) {
+        return `<span class="badge badge-red" title="A card can be drained after being listed -- a check this old doesn't confirm today's balance">Stale check &middot; ${formatDaysAgo(ageDays)}</span>`;
+    }
+    if (mismatch) {
+        return `<span class="badge badge-red" title="Checked balance did not match the claimed balance">Mismatch &middot; ${formatDaysAgo(ageDays)}</span>`;
+    }
+    return `<span class="badge badge-green" title="Balance confirmed ${formatDaysAgo(ageDays)}">Checked &middot; ${formatDaysAgo(ageDays)}</span>`;
+}
+
 function renderFilteredListingsTable(listings) {
     const container = document.getElementById('allListingsTable');
     if (!container) return;
@@ -4495,6 +4590,7 @@ function renderFilteredListingsTable(listings) {
                     <th>Type</th>
                     <th>Seller</th>
                     <th>Status</th>
+                    <th>Balance Check</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -4518,7 +4614,9 @@ function renderFilteredListingsTable(listings) {
                         <td data-label="Type">${l.saleMode === 'marketplace' ? '<span class="submission-mode-tag marketplace">Marketplace</span>' : '<span class="submission-mode-tag instant">Instant</span>'}</td>
                         <td data-label="Seller"><button class="link-btn" onclick="viewSellerHistory('${l.sellerId}', '${escapeJsString(l.seller)}')">${escapeHtml(l.seller)}</button></td>
                         <td data-label="Status"><span class="badge ${statusBadge}">${displayStatus}</span></td>
+                        <td data-label="Balance Check">${renderBalanceCheckBadge(l)}</td>
                         <td data-label="Actions">
+                            <button class="btn btn-outline btn-sm" onclick="viewBalanceCheckHistory('${l.id}', '${l.submissionId || ''}', '${escapeJsString(l.brand)}', ${l.faceValue})">Balance Checks</button>
                             ${
                                 l.status === 'sold'
                                     ? '<span style="color: var(--gray-400); font-size: 12px;">Sold — locked</span>'
@@ -4691,6 +4789,237 @@ async function viewSellerHistory(sellerId, sellerName) {
 function closeSellerHistoryModal() {
     document.getElementById('sellerHistoryOverlay').classList.add('hidden');
     document.getElementById('sellerHistoryModal').classList.add('hidden');
+}
+
+/**
+ * Standalone "Record Balance Check" modal, opened from a pending
+ * submission's row. Always writes check_type='submission' -- pre/post-
+ * delivery checks are recorded from the listing's own history modal
+ * instead (viewBalanceCheckHistory below), since only a listing has a
+ * "pre/post delivery" to speak of.
+ */
+function openRecordBalanceCheckModal(submissionDbId, claimedBalance, brand) {
+    document.getElementById('balanceCheckModalTitle').textContent = `Record Balance Check — ${brand}`;
+    document.getElementById('balanceCheckClaimed').textContent = formatCurrency(claimedBalance);
+    document.getElementById('balanceCheckInput').value = '';
+    document.getElementById('balanceCheckNotesInput').value = '';
+    document.getElementById('balanceCheckError').textContent = '';
+    AppState.pendingBalanceCheck = { submissionId: submissionDbId, claimedBalance };
+    document.getElementById('balanceCheckOverlay').classList.remove('hidden');
+    document.getElementById('balanceCheckModal').classList.remove('hidden');
+    document.getElementById('balanceCheckInput').focus();
+}
+
+function closeBalanceCheckModal() {
+    document.getElementById('balanceCheckOverlay').classList.add('hidden');
+    document.getElementById('balanceCheckModal').classList.add('hidden');
+    AppState.pendingBalanceCheck = null;
+}
+
+async function submitBalanceCheck() {
+    const pending = AppState.pendingBalanceCheck;
+    if (!pending) return;
+
+    const errEl = document.getElementById('balanceCheckError');
+    errEl.textContent = '';
+    const raw = document.getElementById('balanceCheckInput').value.trim();
+    const checkedBalance = Number(raw);
+
+    if (raw === '' || !Number.isFinite(checkedBalance) || checkedBalance < 0) {
+        errEl.textContent = "Enter the balance you actually read off the retailer's page.";
+        return;
+    }
+    const notes = document.getElementById('balanceCheckNotesInput').value.trim();
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('balance_checks').insert({
+                submission_id: pending.submissionId,
+                check_type: 'submission',
+                claimed_balance: pending.claimedBalance,
+                checked_balance: checkedBalance,
+                notes: notes || null,
+                source: 'manual',
+                status: 'completed',
+                checked_by: AppState.currentUser.id,
+                checked_by_name: AppState.currentUser.name
+            });
+            if (error) throw error;
+        });
+
+        const mismatch = checkedBalance !== Number(pending.claimedBalance);
+        await logAdminAction('record_balance_check', 'submission', pending.submissionId, null, {
+            check_type: 'submission',
+            claimed_balance: pending.claimedBalance,
+            checked_balance: checkedBalance,
+            mismatch
+        });
+        showToast(
+            mismatch ? 'warning' : 'success',
+            mismatch ? `Balance mismatch recorded: checked ${formatCurrency(checkedBalance)} vs claimed ${formatCurrency(pending.claimedBalance)}.` : 'Balance check recorded.'
+        );
+
+        closeBalanceCheckModal();
+        renderAdmin();
+    } catch (error) {
+        showError(error, 'Unable to save this balance check.');
+    }
+}
+
+/**
+ * Full balance-check history for a listing -- every reading ever taken
+ * against it, including the one from submission review (joined via
+ * submissionId, since that check predates the listing existing at all).
+ * This is the "if a buyer disputes I can see every reading" view. Also
+ * has its own embedded form for logging a new pre/post-delivery check,
+ * since a listing is the only place those make sense to record from.
+ */
+async function viewBalanceCheckHistory(listingId, submissionId, brand, faceValue) {
+    const overlay = document.getElementById('balanceCheckHistoryOverlay');
+    const modal = document.getElementById('balanceCheckHistoryModal');
+    const content = document.getElementById('balanceCheckHistoryContent');
+    content.innerHTML = `<h2 style="color: var(--navy); margin-bottom: 16px;">${escapeHtml(brand)} — Balance Check History</h2>` + renderSkeletonLines(4);
+    overlay.classList.remove('hidden');
+    modal.classList.remove('hidden');
+
+    try {
+        let query = supabaseClient.from('balance_checks').select('*').order('created_at', { ascending: false });
+        query = submissionId ? query.or(`listing_id.eq.${listingId},submission_id.eq.${submissionId}`) : query.eq('listing_id', listingId);
+        const { data: checks, error } = await query;
+        if (error) throw error;
+
+        const latest = (checks || [])[0] || null;
+        const ageDays = latest ? daysSince(latest.created_at) : null;
+        const freshnessBadge = !latest
+            ? '<span class="badge badge-red">Never checked</span>'
+            : ageDays > BALANCE_CHECK_STALE_DAYS
+              ? `<span class="badge badge-red">Stale &middot; last checked ${formatDaysAgo(ageDays)}</span>`
+              : `<span class="badge badge-green">Last checked ${formatDaysAgo(ageDays)}</span>`;
+        const defaultClaimed = latest ? latest.claimed_balance : faceValue;
+
+        content.innerHTML = `
+            <h2 style="color: var(--navy); margin-bottom: 4px;">${escapeHtml(brand)} — Balance Check History</h2>
+            <p class="section-subtitle" style="margin-bottom: 16px;">${freshnessBadge}</p>
+
+            <div class="table-wrapper" style="margin-bottom: 20px;">
+                <table>
+                    <thead><tr><th>Type</th><th>Claimed</th><th>Checked</th><th>Age</th><th>By</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        ${
+                            (checks || []).length === 0
+                                ? '<tr><td colspan="6">No balance checks recorded yet.</td></tr>'
+                                : checks
+                                      .map((c) => {
+                                          const rowMismatch = c.checked_balance !== null && Number(c.checked_balance) !== Number(c.claimed_balance);
+                                          const rowAge = daysSince(c.created_at);
+                                          return `
+                                <tr class="${rowMismatch ? 'row-warning' : ''}">
+                                    <td data-label="Type">${escapeHtml(CHECK_TYPE_LABELS[c.check_type] || c.check_type)}</td>
+                                    <td data-label="Claimed">${formatCurrency(c.claimed_balance)}</td>
+                                    <td data-label="Checked">${c.checked_balance !== null ? formatCurrency(c.checked_balance) : '—'}${rowMismatch ? ' <span class="badge badge-red">Mismatch</span>' : ''}${c.status === 'failed' ? ' <span class="badge badge-yellow">Failed</span>' : ''}</td>
+                                    <td data-label="Age">${formatDaysAgo(rowAge)} <span style="color: var(--gray-500); font-size: 11px;">(${new Date(c.created_at).toLocaleDateString('en-NZ')})</span></td>
+                                    <td data-label="By">${escapeHtml(c.checked_by_name || (c.source === 'automated' ? 'Automated' : '—'))}</td>
+                                    <td data-label="Notes">${c.notes ? escapeHtml(c.notes) : '—'}</td>
+                                </tr>
+                            `;
+                                      })
+                                      .join('')
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 style="margin-bottom: 8px;">Record a New Check</h3>
+            <div style="display: grid; gap: 12px; max-width: 360px;">
+                <div class="form-group">
+                    <label for="newCheckType">Check type</label>
+                    <select id="newCheckType">
+                        <option value="pre_delivery">Pre-delivery</option>
+                        <option value="post_delivery">Post-delivery</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="newCheckClaimed">Claimed balance</label>
+                    <input type="number" id="newCheckClaimed" step="0.01" min="0" value="${defaultClaimed}" />
+                </div>
+                <div class="form-group">
+                    <label for="newCheckBalance">Balance you read off the retailer's page</label>
+                    <input type="number" id="newCheckBalance" step="0.01" min="0" />
+                    <span class="error-msg" id="newCheckError"></span>
+                </div>
+                <div class="form-group">
+                    <label for="newCheckNotes">Notes (optional)</label>
+                    <textarea id="newCheckNotes" rows="2"></textarea>
+                </div>
+                <button class="btn btn-primary" onclick="submitListingBalanceCheck('${listingId}', '${submissionId || ''}', '${escapeJsString(brand)}', ${faceValue})">Save Check</button>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = '<p>Unable to load balance check history.</p>';
+        console.error(error);
+    }
+}
+
+function closeBalanceCheckHistoryModal() {
+    document.getElementById('balanceCheckHistoryOverlay').classList.add('hidden');
+    document.getElementById('balanceCheckHistoryModal').classList.add('hidden');
+}
+
+async function submitListingBalanceCheck(listingId, submissionId, brand, faceValue) {
+    const errEl = document.getElementById('newCheckError');
+    errEl.textContent = '';
+
+    const checkType = document.getElementById('newCheckType').value;
+    const claimedRaw = document.getElementById('newCheckClaimed').value.trim();
+    const checkedRaw = document.getElementById('newCheckBalance').value.trim();
+    const notes = document.getElementById('newCheckNotes').value.trim();
+
+    const claimedBalance = Number(claimedRaw);
+    const checkedBalance = Number(checkedRaw);
+
+    if (claimedRaw === '' || !Number.isFinite(claimedBalance) || claimedBalance < 0) {
+        errEl.textContent = 'Enter the claimed balance.';
+        return;
+    }
+    if (checkedRaw === '' || !Number.isFinite(checkedBalance) || checkedBalance < 0) {
+        errEl.textContent = "Enter the balance you actually read off the retailer's page.";
+        return;
+    }
+
+    try {
+        await withLoading(async () => {
+            const { error } = await supabaseClient.from('balance_checks').insert({
+                submission_id: submissionId || null,
+                listing_id: listingId,
+                check_type: checkType,
+                claimed_balance: claimedBalance,
+                checked_balance: checkedBalance,
+                notes: notes || null,
+                source: 'manual',
+                status: 'completed',
+                checked_by: AppState.currentUser.id,
+                checked_by_name: AppState.currentUser.name
+            });
+            if (error) throw error;
+        });
+
+        const mismatch = checkedBalance !== claimedBalance;
+        await logAdminAction('record_balance_check', 'listing', listingId, brand, {
+            check_type: checkType,
+            claimed_balance: claimedBalance,
+            checked_balance: checkedBalance,
+            mismatch
+        });
+        showToast(
+            mismatch ? 'warning' : 'success',
+            mismatch ? `Balance mismatch recorded: checked ${formatCurrency(checkedBalance)} vs claimed ${formatCurrency(claimedBalance)}.` : 'Balance check recorded.'
+        );
+
+        await renderAdmin();
+        await viewBalanceCheckHistory(listingId, submissionId || null, brand, faceValue);
+    } catch (error) {
+        showError(error, 'Unable to save this balance check.');
+    }
 }
 
 /**
