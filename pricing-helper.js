@@ -83,6 +83,77 @@ const GiftlioPricing = (function () {
         return { valid: true, error: null };
     }
 
+    const PERCENT_OF_FACE_VALUE_FLOOR = 0.2;
+
+    /**
+     * The two balance floors a submission must clear, together in one
+     * place so the interaction is a single testable unit instead of two
+     * checks scattered across the trigger and the client: at least 20% of
+     * the card's own face value, AND at least the configured absolute
+     * dollar minimum -- whichever is stricter for this face value is the
+     * one that actually binds. minBalanceInput must come from the live
+     * pricing_config row; a missing/unconfigured value blocks rather than
+     * silently allowing everything through.
+     */
+    function validateCardBalanceFloor(balanceInput, faceValueInput, minBalanceInput) {
+        if (minBalanceInput === null || minBalanceInput === undefined || minBalanceInput === '') {
+            return { valid: false, error: 'Minimum balance is not configured. Please contact support before submitting.' };
+        }
+        const minBalance = Number(minBalanceInput);
+        if (!Number.isFinite(minBalance)) {
+            return { valid: false, error: 'Minimum balance is not configured. Please contact support before submitting.' };
+        }
+
+        const balance = Number(balanceInput);
+        if (balanceInput === '' || balanceInput === null || balanceInput === undefined || !Number.isFinite(balance)) {
+            return { valid: false, error: 'Enter the current balance.' };
+        }
+
+        const faceValue = Number(faceValueInput);
+        if (faceValueInput === null || faceValueInput === undefined || faceValueInput === '' || !Number.isFinite(faceValue) || faceValue <= 0) {
+            return { valid: false, error: "Enter the card's original value first." };
+        }
+
+        const percentFloor = Math.round(faceValue * PERCENT_OF_FACE_VALUE_FLOOR * 100) / 100;
+        if (balance < percentFloor) {
+            return { valid: false, error: 'Cards must have at least 20% of the original value remaining to be accepted.' };
+        }
+        if (balance < minBalance) {
+            return { valid: false, error: `Cards need at least $${minBalance.toFixed(2)} remaining. Below that isn't economical for us to process.` };
+        }
+
+        return { valid: true, error: null };
+    }
+
+    /**
+     * Minimum marketplace listing/counter-offer price -- used for the
+     * seller's asking price on submission AND for a counter-offer amount,
+     * since both are "what a buyer would actually pay" and neither should
+     * ever be allowed below the configured floor. minPriceInput must come
+     * from the live pricing_config row; missing config blocks rather than
+     * guessing a default.
+     */
+    function validateMinListingPrice(priceInput, minPriceInput) {
+        if (minPriceInput === null || minPriceInput === undefined || minPriceInput === '') {
+            return { valid: false, error: 'Minimum listing price is not configured. Please contact support before submitting.' };
+        }
+        const minPrice = Number(minPriceInput);
+        if (!Number.isFinite(minPrice)) {
+            return { valid: false, error: 'Minimum listing price is not configured. Please contact support before submitting.' };
+        }
+
+        const price = Number(priceInput);
+        if (priceInput === '' || priceInput === null || priceInput === undefined || !Number.isFinite(price)) {
+            return { valid: false, error: 'Enter your asking price.' };
+        }
+
+        if (price < minPrice) {
+            return { valid: false, error: `Minimum listing price is $${minPrice.toFixed(2)}.` };
+        }
+
+        return { valid: true, error: null };
+    }
+
     /**
      * The ONLY place Instant Sell sale price (and, by the same formula,
      * seller offer) is ever calculated. Takes the current balance and a
@@ -115,34 +186,52 @@ const GiftlioPricing = (function () {
         return { salePrice, discountPercent, purchasable: salePrice > 0, error: null };
     }
 
-    const SERVICE_FEE_RATE = 0.05;
-
     /**
-     * Computes the buyer's checkout total from a listing's sale price --
-     * the ONLY place the service fee percentage should be hardcoded. This
-     * was previously duplicated as a raw 0.05 in two separate places
-     * (checkout initiation and the order confirmation modal), which is
-     * exactly the "no page should have its own math" problem this helper
-     * exists to prevent.
+     * The ONLY place marketplace commission is ever calculated -- was
+     * previously inlined directly in approveSubmission() (app.js), which
+     * defeated the point of having a single source of truth for pricing.
+     * Every caller (the live payout preview on the sell form, the
+     * submission's stored offer estimate, admin approval, and the Stripe
+     * webhook's instrumentation) must go through this function.
+     *
+     * commissionRateInput is a fraction (0.12 for 12%), always sourced
+     * from the live pricing_config row -- never hardcoded, never a
+     * fallback default. A missing/invalid rate is a configuration error,
+     * not a pricing decision: returns an explicit error rather than
+     * silently applying some other number.
+     *
+     * There is no buyer-side fee. The buyer pays exactly askingPrice --
+     * the commission comes entirely out of the seller's payout.
      */
-    function calculateCheckoutTotal(salePrice) {
-        const price = Number(salePrice) || 0;
-        const rawFee = price * SERVICE_FEE_RATE;
-        const serviceFee = Math.round(Math.max(1, Math.min(15, rawFee)) * 100) / 100;
-        const feeWasCapped = rawFee > 15;
-        const total = Math.round((price + serviceFee) * 100) / 100;
-        return { serviceFee, total, feeWasCapped };
+    function calculateMarketplacePayout(askingPriceInput, commissionRateInput) {
+        if (commissionRateInput === null || commissionRateInput === undefined || commissionRateInput === '') {
+            return { commission: 0, sellerPayout: 0, error: 'No commission rate configured.' };
+        }
+        const rate = Number(commissionRateInput);
+        if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
+            return { commission: 0, sellerPayout: 0, error: 'No commission rate configured.' };
+        }
+
+        const askingPrice = Number(askingPriceInput);
+        if (!Number.isFinite(askingPrice) || askingPrice <= 0) {
+            return { commission: 0, sellerPayout: 0, error: 'Enter a valid asking price.' };
+        }
+
+        const commission = Math.round(askingPrice * rate * 100) / 100;
+        const sellerPayout = Math.round((askingPrice - commission) * 100) / 100;
+        return { commission, sellerPayout, error: null };
     }
 
     return {
         MIN_DISCOUNT,
         MAX_DISCOUNT,
-        SERVICE_FEE_RATE,
         clampDiscount,
         validateBalance,
         validateFaceValue,
+        validateCardBalanceFloor,
+        validateMinListingPrice,
         calculateSalePrice,
-        calculateCheckoutTotal
+        calculateMarketplacePayout
     };
 })();
 

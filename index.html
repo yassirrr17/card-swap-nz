@@ -809,7 +809,7 @@
                                 <input type="radio" name="saleMode" value="marketplace" checked hidden>
                                 <div class="marketplace-only-notice">
                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:6px;"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9z"/></svg>
-                                    You set your own asking price. Giftlio takes a 10% commission, paid out once a buyer purchases your card.
+                                    <span id="marketplaceCommissionNotice">Loading pricing information…</span>
                                 </div>
                             </div>
 
@@ -817,7 +817,7 @@
                                 <label for="subSellerPrice">Your Asking Price (NZD) *</label>
                                 <input type="number" id="subSellerPrice" min="1" step="0.01" oninput="updateOffer()">
                                 <span class="error-msg" id="subSellerPriceError"></span>
-                                <p class="field-hint-text">You'll receive 90% of this price once it sells (10% Giftlio commission).</p>
+                                <p class="field-hint-text" id="sellerPriceHint"></p>
                             </div>
 
                             <div class="form-group">
@@ -1057,6 +1057,12 @@
                                     <div id="statusChart"><div class="chart-skeleton"><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px;"></div><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px; width:80%;"></div><div class="skel" style="height:12px; margin-bottom:16px; border-radius:6px; width:60%;"></div><div class="skel" style="height:12px; border-radius:6px; width:40%;"></div></div></div>
                                 </div>
                             </div>
+                            <div class="chart-card" style="margin-top: 24px;">
+                                <div class="chart-card-head"><h3>Economics</h3></div>
+                                <div class="summary-cards" id="economicsSummaryCards"></div>
+                                <h4 style="margin: 20px 0 8px;">Net Contribution by Price Band</h4>
+                                <div class="table-wrapper" id="economicsPriceBandTable"></div>
+                            </div>
                         </div>
 
                         <!-- SUBMISSIONS -->
@@ -1187,6 +1193,12 @@
                         <!-- BRAND SETTINGS -->
                         <div class="admin-page hidden" id="adminPageBrands">
                             <h1>Brand Settings</h1>
+
+                            <h3 style="margin-bottom: 4px;">Platform Economics</h3>
+                            <p class="section-subtitle">Global settings, not per-brand: the Marketplace commission rate and the minimum card balance / listing price floors. Changes apply to every submission and sale from now on, and are logged to the audit log.</p>
+                            <div id="pricingConfigSettings" style="margin-bottom: 32px;"></div>
+
+                            <h3 style="margin-bottom: 4px;">Per-Retailer Discounts</h3>
                             <p class="section-subtitle">Sets the buyer discount for Instant Sell listings, per retailer (0-25%). Applies to all new approvals immediately — no redeploy needed. Marketplace listings aren't affected; sellers set their own price there.</p>
                             <div class="table-wrapper" id="brandDiscountsTable"></div>
                         </div>
@@ -1356,6 +1368,7 @@
                     <h3>3. Buyer Terms</h3>
                     <ul>
                         <li>Buyers must be 18 years or older</li>
+                        <li>There is no buyer-side fee -- you pay exactly the listed price, with no service fee or other charge added at checkout</li>
                         <li>Gift card details delivered via email within 24 hours of purchase</li>
                         <li>Buyers must verify card balance within 48 hours of receipt</li>
                         <li>Report issues immediately via support email</li>
@@ -1364,13 +1377,14 @@
 
                     <h3>4. Seller Terms</h3>
                     <ul>
-                        <li>Cards must have at least 20% of the original value remaining to be accepted</li>
+                        <li>Cards must have at least 20% of the original value remaining to be accepted, AND at least the current minimum dollar balance (shown on the Sell form) -- both apply</li>
                         <li>Cards must be valid for at least 60 days from submission</li>
                         <li>Minimum card value is $10</li>
+                        <li>Minimum Marketplace listing price applies (shown on the Sell form) -- offers and counter-offers cannot go below it</li>
                         <li>Sellers must legally own all gift cards listed</li>
                         <li>Must provide accurate balance information</li>
                         <li>Stolen or fraudulent cards are prohibited and will result in account suspension</li>
-                        <li>Sellers set their own price and receive it minus Giftlio's 10% commission once a buyer purchases the card</li>
+                        <li>Sellers set their own price and receive it minus Giftlio's 12% commission once a buyer purchases the card</li>
                         <li>Payouts are processed after admin review; typical turnaround is a few business days</li>
                     </ul>
 
@@ -1584,7 +1598,7 @@
                         <li>The card's expiry date</li>
                         <li>The card number, and PIN if the card has one</li>
                         <li>A receipt or a photo of the card as evidence -- at least one is required</li>
-                        <li>Your own asking price -- on the Marketplace you set the price, and Giftlio takes a 10% commission once it sells</li>
+                        <li>Your own asking price -- on the Marketplace you set the price, and Giftlio takes a 12% commission once it sells. No buyer-side fee -- the buyer pays exactly your listed price.</li>
                     </ul>
 
                     <h3>Review</h3>

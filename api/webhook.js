@@ -1,5 +1,15 @@
 const Stripe = require('stripe');
 const { createClient } = require('@supabase/supabase-js');
+const GiftlioPricing = require('../pricing-helper.js');
+
+// Fallback ONLY -- used when Stripe's actual balance transaction fee isn't
+// yet available (rare, but the balance transaction can lag a few seconds
+// behind the charge). This is a rough, generic NZD card-present rate, NOT
+// Giftlio's actual negotiated Stripe rate -- rows using this are always
+// marked stripe_fee_is_estimated = true so the admin dashboard and anyone
+// reading the orders table can tell an estimate from Stripe's real number.
+const ESTIMATED_STRIPE_FEE_RATE = 0.029;
+const ESTIMATED_STRIPE_FEE_FIXED = 0.3;
 
 // Vercel must NOT parse the request body for this endpoint -- Stripe's
 // signature verification needs the exact raw, untouched bytes of the
@@ -71,6 +81,50 @@ module.exports = async function handler(req, res) {
         const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
         try {
+            const salePrice = Number(metadata.sale_price);
+
+            // Gross commission: uses the rate THIS listing was actually
+            // priced with (passed through from create-checkout.js's
+            // metadata, itself read from the listing row, never the
+            // client) -- via the shared pricing helper, same as every
+            // other place commission is calculated. Instant Sell listings
+            // have no commission_rate at all, so this stays null for them
+            // by design, not zero.
+            let grossCommission = null;
+            if (metadata.sale_mode === 'marketplace' && metadata.commission_rate) {
+                const commissionRateFraction = Number(metadata.commission_rate) / 100;
+                const payout = GiftlioPricing.calculateMarketplacePayout(salePrice, commissionRateFraction);
+                if (!payout.error) grossCommission = payout.commission;
+            }
+
+            // Stripe's own reported fee from the charge's balance
+            // transaction -- the real number, not an estimate, whenever
+            // it's available. Falls back to a rough estimate (flagged)
+            // only if the balance transaction isn't ready yet or the
+            // lookup fails for any reason -- this must never block order
+            // creation, a buyer who already paid needs their order row
+            // regardless of whether the fee lookup succeeded.
+            let stripeFee = null;
+            let stripeFeeIsEstimated = null;
+            try {
+                const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent, {
+                    expand: ['latest_charge.balance_transaction']
+                });
+                const balanceTransaction = paymentIntent?.latest_charge?.balance_transaction;
+                if (balanceTransaction && typeof balanceTransaction.fee === 'number') {
+                    stripeFee = Math.round(balanceTransaction.fee) / 100;
+                    stripeFeeIsEstimated = false;
+                }
+            } catch (feeError) {
+                console.warn(`Unable to fetch Stripe's actual fee for session ${session.id}, falling back to an estimate:`, feeError.message);
+            }
+            if (stripeFee === null) {
+                stripeFee = Math.round((salePrice * ESTIMATED_STRIPE_FEE_RATE + ESTIMATED_STRIPE_FEE_FIXED) * 100) / 100;
+                stripeFeeIsEstimated = true;
+            }
+
+            const netContribution = grossCommission !== null ? Math.round((grossCommission - stripeFee) * 100) / 100 : null;
+
             const { error: orderError } = await supabaseAdmin.from('orders').insert({
                 public_id: generatePublicOrderId(session.id),
                 listing_id: metadata.listing_id,
@@ -80,11 +134,15 @@ module.exports = async function handler(req, res) {
                 buyer_phone: metadata.buyer_phone,
                 brand: metadata.brand,
                 face_value: Number(metadata.face_value),
-                sale_price: Number(metadata.sale_price),
-                service_fee: Number(metadata.service_fee),
-                total: Number(metadata.total),
+                sale_price: salePrice,
+                service_fee: 0,
+                total: salePrice,
                 status: 'pending_verification',
-                stripe_session_id: session.id
+                stripe_session_id: session.id,
+                gross_commission: grossCommission,
+                stripe_fee: stripeFee,
+                stripe_fee_is_estimated: stripeFeeIsEstimated,
+                net_contribution: netContribution
             });
 
             if (orderError) {

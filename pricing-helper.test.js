@@ -171,44 +171,122 @@ assertEqual(
     'a brand with no configured percentage fails loudly, never silently uses 15% or any other number'
 );
 
-console.log('\n--- calculateCheckoutTotal ---');
+console.log('\n--- calculateMarketplacePayout: 12% commission at several price points ---');
 
 assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(100),
-    { serviceFee: 5, total: 105, feeWasCapped: false },
-    '$100 sale price -> $5 service fee, $105 total, not capped either direction'
+    GiftlioPricing.calculateMarketplacePayout(15, 0.12),
+    { commission: 1.8, sellerPayout: 13.2, error: null },
+    '$15 asking price at 12% -> $1.80 commission, $13.20 seller payout (the minimum listing price case)'
 );
 
 assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(21.25),
-    { serviceFee: 1.06, total: 22.31, feeWasCapped: false },
-    '$21.25 sale price -> correct fee and total, matches the partial-balance case above'
-);
-
-console.log('\n--- calculateCheckoutTotal: $1 minimum and $15 maximum cap ---');
-
-assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(10),
-    { serviceFee: 1, total: 11, feeWasCapped: false },
-    '$10 card: raw 5% would be $0.50, floored up to the $1 minimum -- not flagged as "capped" since that flag is specifically for the $15 ceiling'
+    GiftlioPricing.calculateMarketplacePayout(50, 0.12),
+    { commission: 6, sellerPayout: 44, error: null },
+    '$50 asking price at 12% -> $6 commission, $44 seller payout'
 );
 
 assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(500),
-    { serviceFee: 15, total: 515, feeWasCapped: true },
-    '$500 card: raw 5% would be $25, capped down to $15 -- feeWasCapped true so the UI can show "Maximum service fee applied"'
+    GiftlioPricing.calculateMarketplacePayout(100, 0.12),
+    { commission: 12, sellerPayout: 88, error: null },
+    '$100 asking price at 12% -> $12 commission, $88 seller payout'
 );
 
 assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(300),
-    { serviceFee: 15, total: 315, feeWasCapped: false },
-    '$300 card: raw 5% is exactly $15 -- lands right at the ceiling without needing to be reduced, so NOT flagged as capped (that flag means "would have been higher than $15 if uncapped")'
+    GiftlioPricing.calculateMarketplacePayout(333.33, 0.12),
+    { commission: 40, sellerPayout: 293.33, error: null },
+    '$333.33 asking price at 12% -> rounds to $40.00 commission, $293.33 seller payout'
 );
 
 assertEqual(
-    GiftlioPricing.calculateCheckoutTotal(301),
-    { serviceFee: 15, total: 316, feeWasCapped: true },
-    '$301 card: raw 5% is $15.05, genuinely over the ceiling -- correctly capped to $15 and flagged'
+    GiftlioPricing.calculateMarketplacePayout(100, 0),
+    { commission: 0, sellerPayout: 100, error: null },
+    '0% commission (config edge case) -> seller keeps the full asking price, genuinely valid'
+);
+
+console.log('\n--- calculateMarketplacePayout: missing/invalid commission rate is an explicit error, never a silent guess ---');
+
+assertEqual(
+    GiftlioPricing.calculateMarketplacePayout(100, null),
+    { commission: 0, sellerPayout: 0, error: 'No commission rate configured.' },
+    'null commission rate (config missing) fails loudly, never silently falls back to 10% or any other number'
+);
+
+assertEqual(
+    GiftlioPricing.calculateMarketplacePayout(100, undefined),
+    { commission: 0, sellerPayout: 0, error: 'No commission rate configured.' },
+    'undefined commission rate fails loudly'
+);
+
+assertEqual(
+    GiftlioPricing.calculateMarketplacePayout(100, 1.5),
+    { commission: 0, sellerPayout: 0, error: 'No commission rate configured.' },
+    'commission rate above 1 (150%, clearly a fraction/percent mixup) is rejected rather than applied'
+);
+
+console.log('\n--- validateCardBalanceFloor: absolute $20 minimum ---');
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(20, 100, 20),
+    { valid: true, error: null },
+    'balance exactly $20 (the configured minimum) on a $100 card passes'
+);
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(19.99, 50, 20),
+    { valid: false, error: "Cards need at least $20.00 remaining. Below that isn't economical for us to process." },
+    '$19.99 balance on a $50 card clears the 20% rule ($10 needed) but is rejected -- one cent under the $20 absolute minimum'
+);
+
+console.log('\n--- validateCardBalanceFloor: interaction between the 20%-of-face-value rule and the absolute floor ---');
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(25, 200, 20),
+    { valid: false, error: 'Cards must have at least 20% of the original value remaining to be accepted.' },
+    '$25 on a $200 card clears the $20 absolute floor but fails the 20% rule ($40 needed) -- the percentage rule is the one that actually binds here, and its message is the one shown'
+);
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(19, 50, 20),
+    { valid: false, error: "Cards need at least $20.00 remaining. Below that isn't economical for us to process." },
+    '$19 on a $50 card clears the 20% rule ($10 needed) but fails the $20 absolute floor -- the absolute floor is the one that binds here, and its message is the one shown'
+);
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(40, 200, 20),
+    { valid: true, error: null },
+    '$40 on a $200 card clears both: exactly 20% of face value AND well above the $20 absolute floor'
+);
+
+assertEqual(
+    GiftlioPricing.validateCardBalanceFloor(null, 100, null),
+    { valid: false, error: 'Minimum balance is not configured. Please contact support before submitting.' },
+    'missing pricing config blocks the submission with an explicit error, never silently skips the floor'
+);
+
+console.log('\n--- validateMinListingPrice: $15 minimum, also used for the counter-offer floor ---');
+
+assertEqual(
+    GiftlioPricing.validateMinListingPrice(15, 15),
+    { valid: true, error: null },
+    'asking price exactly $15 (the configured minimum) passes'
+);
+
+assertEqual(
+    GiftlioPricing.validateMinListingPrice(14.99, 15),
+    { valid: false, error: 'Minimum listing price is $15.00.' },
+    '$14.99 asking price is rejected -- one cent under the $15 minimum'
+);
+
+assertEqual(
+    GiftlioPricing.validateMinListingPrice(12, 15),
+    { valid: false, error: 'Minimum listing price is $15.00.' },
+    'a seller counter-offer of $12 is rejected by the same floor a listing price would be -- counter-offers cannot land below min_listing_price'
+);
+
+assertEqual(
+    GiftlioPricing.validateMinListingPrice(15, null),
+    { valid: false, error: 'Minimum listing price is not configured. Please contact support before submitting.' },
+    'missing pricing config blocks a counter-offer/listing price too, never silently allows it through'
 );
 
 console.log('\n--- Reported bug regression test: Woolworths at 10%, balance $80 ---');

@@ -28,10 +28,9 @@ module.exports = async function handler(req, res) {
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
     try {
-        const { listingId, brand, faceValue, salePrice, serviceFee, total, buyerId, buyerName, buyerEmail, buyerPhone } =
-            req.body || {};
+        const { listingId, brand, faceValue, salePrice, buyerId, buyerName, buyerEmail, buyerPhone } = req.body || {};
 
-        if (!listingId || !salePrice || !total || !buyerId || !buyerEmail) {
+        if (!listingId || !salePrice || !buyerId || !buyerEmail) {
             return res.status(400).json({ error: 'Missing required checkout details.' });
         }
 
@@ -41,9 +40,17 @@ module.exports = async function handler(req, res) {
         // price. The only prices that are ever valid are: (a) the
         // listing's real public sale_price, or (b) an offer this specific
         // buyer has an ACCEPTED agreement for on this listing.
+        //
+        // commission_rate/sale_mode are read from the listing here too --
+        // this is the rate THIS listing was actually priced with at
+        // approval time (never re-derived from today's config, which may
+        // have since changed, and never trusted from the client) -- and
+        // passed through to the webhook via metadata so the order's
+        // gross_commission instrumentation reflects what this seller was
+        // actually promised, not a possibly-drifted current rate.
         const { data: listing, error: listingError } = await supabaseAdmin
             .from('listings')
-            .select('sale_price, status, brand')
+            .select('sale_price, status, brand, commission_rate, sale_mode')
             .eq('id', listingId)
             .single();
 
@@ -93,12 +100,10 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'This price is no longer valid. Please refresh the listing and try again.' });
         }
 
-        const rawFee = verifiedPrice * 0.05;
-        const verifiedFee = Math.round(Math.max(1, Math.min(15, rawFee)) * 100) / 100;
-        const verifiedTotal = Math.round((verifiedPrice + verifiedFee) * 100) / 100;
-
         const origin = req.headers.origin || `https://${req.headers.host}`;
 
+        // No buyer-side fee -- the buyer pays exactly the verified sale
+        // price. A single line item, nothing added on top.
         const session = await stripe.checkout.sessions.create({
             mode: 'payment',
             payment_method_types: ['card'],
@@ -114,21 +119,14 @@ module.exports = async function handler(req, res) {
                         unit_amount: Math.round(verifiedPrice * 100)
                     },
                     quantity: 1
-                },
-                {
-                    price_data: {
-                        currency: 'nzd',
-                        product_data: { name: 'Service Fee' },
-                        unit_amount: Math.round(verifiedFee * 100)
-                    },
-                    quantity: 1
                 }
             ],
             // This metadata is what the webhook (next step) will use to
             // actually create the order row and mark the listing sold --
             // it travels with the Stripe session, so it survives the
             // redirect to Stripe and back. Uses the server-VERIFIED price,
-            // never the raw client-submitted one.
+            // never the raw client-submitted one. commission_rate/sale_mode
+            // come from the listing row above, also never client-supplied.
             metadata: {
                 listing_id: listingId,
                 buyer_id: buyerId,
@@ -138,8 +136,8 @@ module.exports = async function handler(req, res) {
                 brand: brand || '',
                 face_value: String(faceValue ?? ''),
                 sale_price: String(verifiedPrice),
-                service_fee: String(verifiedFee),
-                total: String(verifiedTotal)
+                sale_mode: listing.sale_mode || '',
+                commission_rate: listing.commission_rate !== null && listing.commission_rate !== undefined ? String(listing.commission_rate) : ''
             },
             success_url: `${origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}#checkout`,
             cancel_url: `${origin}/?checkout=cancelled#checkout`

@@ -1,6 +1,5 @@
 const DEFAULT_CHECKOUT_STEP = 1;
 const MAX_CHECKOUT_STEP = 4;
-const MARKETPLACE_COMMISSION_RATE = 0.10;
 const SELLER_VERIFICATION_VALUE_THRESHOLD = 200;
 
 const TOAST_ICONS = {
@@ -128,6 +127,31 @@ function subscribeToBrandDiscountChanges() {
             }
         })
         .subscribe();
+}
+
+/**
+ * Loads the live platform economics config (marketplace commission rate,
+ * minimum card balance, minimum listing price) from pricing_config --
+ * always fetched fresh, same convention as loadBrandDiscounts(), so an
+ * admin's just-saved change takes effect on the very next read. Every
+ * place that needs one of these three numbers reads AppState.pricingConfig
+ * after calling this -- never a hardcoded fallback. A failed load leaves
+ * AppState.pricingConfig null, which every caller treats as "blocked,
+ * missing config" rather than silently proceeding with a guess.
+ */
+async function loadPricingConfig() {
+    const { data, error } = await supabaseClient.from('pricing_config').select('marketplace_commission_rate, min_card_balance, min_listing_price').eq('id', 1).maybeSingle();
+    if (error || !data) {
+        console.error('Failed to load pricing config:', error);
+        AppState.pricingConfig = null;
+        return null;
+    }
+    AppState.pricingConfig = {
+        commissionRate: Number(data.marketplace_commission_rate),
+        minCardBalance: Number(data.min_card_balance),
+        minListingPrice: Number(data.min_listing_price)
+    };
+    return AppState.pricingConfig;
 }
 
 async function loadBrandDiscounts() {
@@ -675,7 +699,11 @@ function orderRowToView(row) {
         date: row.created_at,
         sellerPaid: Boolean(row.seller_paid),
         deliveredAt: row.delivered_at || null,
-        payoutReleasedAt: row.payout_released_at || null
+        payoutReleasedAt: row.payout_released_at || null,
+        grossCommission: row.gross_commission !== null && row.gross_commission !== undefined ? Number(row.gross_commission) : null,
+        stripeFee: row.stripe_fee !== null && row.stripe_fee !== undefined ? Number(row.stripe_fee) : null,
+        stripeFeeIsEstimated: row.stripe_fee_is_estimated === true,
+        netContribution: row.net_contribution !== null && row.net_contribution !== undefined ? Number(row.net_contribution) : null
     };
 }
 
@@ -1751,7 +1779,9 @@ function startCheckout(agreedPrice) {
         buyerName: AppState.currentUser.name,
         buyerEmail: AppState.currentUser.email,
         buyerPhone: '',
-        ...GiftlioPricing.calculateCheckoutTotal(effectivePrice)
+        // No buyer-side fee -- the buyer pays exactly the sale price.
+        // Commission comes entirely out of the seller's payout.
+        total: effectivePrice
     };
 
     updateCheckoutSteps();
@@ -1782,9 +1812,7 @@ function renderCheckoutSummary() {
     const listing = AppState.currentOrder?.listing;
     if (!listing) return;
 
-    const fee = AppState.currentOrder.serviceFee;
     const total = AppState.currentOrder.total;
-    const feeWasCapped = AppState.currentOrder.feeWasCapped;
 
     document.getElementById('orderSummary').innerHTML = `
         <h3 style="margin-bottom: 16px; color: var(--navy);">Order Summary</h3>
@@ -1796,11 +1824,7 @@ function renderCheckoutSummary() {
             <span>Selling Price</span>
             <span>${formatCurrency(listing.salePrice)}</span>
         </div>
-        <div class="summary-row">
-            <span>Service Fee</span>
-            <span>${formatCurrency(fee)}</span>
-        </div>
-        ${feeWasCapped ? '<p class="fee-capped-note">Maximum service fee applied</p>' : ''}
+        <p style="text-align: right; margin-bottom: 8px; color: var(--gray-500); font-size: 12px;">No buyer fees -- you pay exactly the listed price.</p>
         <div class="summary-row total">
             <span>Total</span>
             <span>${formatCurrency(total)}</span>
@@ -1863,8 +1887,6 @@ async function placeOrder() {
                     brand: listing.brand,
                     faceValue: listing.faceValue,
                     salePrice: listing.salePrice,
-                    serviceFee: AppState.currentOrder.serviceFee,
-                    total: AppState.currentOrder.total,
                     buyerId: AppState.currentUser.id,
                     buyerName: AppState.currentOrder.buyerName,
                     buyerEmail: AppState.currentOrder.buyerEmail,
@@ -2003,7 +2025,7 @@ async function viewOrderDetail(orderDbId) {
                     <p><strong>Order ID:</strong> ${order.id}</p>
                     <p><strong>Brand:</strong> ${order.brand}</p>
                     <p><strong>Card Value:</strong> ${formatCurrency(order.faceValue)}</p>
-                    <p><strong>Price Paid:</strong> ${formatCurrency(order.total)} (includes ${formatCurrency(order.serviceFee)} fee, GST included)</p>
+                    <p><strong>Price Paid:</strong> ${formatCurrency(order.total)} (GST included)</p>
                     <p><strong>Purchase Date:</strong> ${new Date(order.date).toLocaleString('en-NZ')}</p>
                     <p><strong>Status:</strong> <span class="badge ${order.status === 'Pending Review' ? 'badge-yellow' : order.status === 'Delivered' ? 'badge-green' : 'badge-red'}">${order.status}</span></p>
                     <p><strong>Delivery Email:</strong> ${order.buyerEmail}</p>
@@ -2043,9 +2065,33 @@ async function viewOrderDetail(orderDbId) {
  * redeploy needed.
  */
 async function renderSellPage() {
-    await loadBrandDiscounts();
+    await Promise.all([loadBrandDiscounts(), loadPricingConfig()]);
     populateBrandDropdown();
+    renderPricingMinimumsNotice();
     updateOffer();
+}
+
+/**
+ * Shows the live minimum listing price and commission rate up front on
+ * the Sell form, before a seller has typed anything -- pulled from
+ * AppState.pricingConfig, never hardcoded text. If config failed to load,
+ * says so plainly instead of showing a stale or guessed number.
+ */
+function renderPricingMinimumsNotice() {
+    const noticeEl = document.getElementById('marketplaceCommissionNotice');
+    const hintEl = document.getElementById('sellerPriceHint');
+    if (!noticeEl || !hintEl) return;
+
+    const config = AppState.pricingConfig;
+    if (!config) {
+        noticeEl.textContent = 'Pricing information is temporarily unavailable. Please try again shortly.';
+        hintEl.textContent = '';
+        return;
+    }
+
+    const commissionPct = Math.round(config.commissionRate * 1000) / 10;
+    noticeEl.textContent = `You set your own asking price (minimum $${config.minListingPrice.toFixed(2)}). Giftlio takes a ${commissionPct}% commission, paid out once a buyer purchases your card.`;
+    hintEl.textContent = `You'll receive ${(100 - commissionPct).toFixed(commissionPct % 1 === 0 ? 0 : 1)}% of this price once it sells (${commissionPct}% Giftlio commission). Minimum listing price is $${config.minListingPrice.toFixed(2)}.`;
 }
 
 /**
@@ -2259,6 +2305,21 @@ function showSellerTab(tab, event) {
     if (tab === 'earnings') renderSellerEarnings();
     if (tab === 'settings') renderSellerSettings();
     if (tab === 'offers') renderSellerOffers();
+    // The submit form's brand tile picker and live pricing preview were
+    // only ever populated via the standalone /sell route's renderSellPage()
+    // -- a page that doesn't even contain this form. Reaching this tab any
+    // other way (the dashboard sidebar, "Submit New Gift Card", the /sell
+    // landing page's CTA) left the tiles empty and the pricing notice
+    // stuck on its placeholder text. Initializing here, at the one place
+    // every path into this tab actually passes through, fixes it for all
+    // of them at once.
+    if (tab === 'submit') {
+        Promise.all([loadBrandDiscounts(), loadPricingConfig()]).then(() => {
+            populateBrandDropdown();
+            renderPricingMinimumsNotice();
+            updateOffer();
+        });
+    }
 }
 
 async function renderSellerDashboard() {
@@ -2285,7 +2346,8 @@ async function renderSellerDashboard() {
                     .from('listings')
                     .select('*')
                     .eq('seller_id', AppState.currentUser.id)
-                    .order('created_at', { ascending: false })
+                    .order('created_at', { ascending: false }),
+                loadPricingConfig()
             ]);
 
             if (submissionsError) throw submissionsError;
@@ -2390,9 +2452,16 @@ function updateOffer() {
 
     if (mode === 'marketplace') {
         const askingPrice = parseFloat(document.getElementById('subSellerPrice').value) || 0;
-        const payout = askingPrice * (1 - MARKETPLACE_COMMISSION_RATE);
-        offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">${formatCurrency(payout)}</strong>`;
-        offerNote.textContent = 'Paid out once a buyer purchases your card, after 10% commission';
+        const config = AppState.pricingConfig;
+        if (!config) {
+            offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">$0.00</strong>`;
+            offerNote.textContent = 'Pricing information is temporarily unavailable -- please try again shortly';
+            return;
+        }
+        const sellerPayout = askingPrice > 0 ? GiftlioPricing.calculateMarketplacePayout(askingPrice, config.commissionRate).sellerPayout : 0;
+        const commissionPct = Math.round(config.commissionRate * 1000) / 10;
+        offerLabel.innerHTML = `You'll receive: <strong id="offerAmount">${formatCurrency(sellerPayout)}</strong>`;
+        offerNote.textContent = `Paid out once a buyer purchases your card, after ${commissionPct}% commission`;
         return;
     }
 
@@ -2462,7 +2531,8 @@ async function handleSubmission() {
         // approvals and zero completed Marketplace sales, or vice versa --
         // the $100 new-Marketplace-seller cap below is specifically about
         // Marketplace sales history, not submission history in general.
-        supabaseClient.from('listings').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).eq('sale_mode', 'marketplace').eq('status', 'sold')
+        supabaseClient.from('listings').select('id', { count: 'exact', head: true }).eq('seller_id', AppState.currentUser.id).eq('sale_mode', 'marketplace').eq('status', 'sold'),
+        loadPricingConfig()
     ]);
     const isEstablishedSeller = (approvedCount || 0) >= 5;
     const isNewSeller = (approvedCount || 0) < 3;
@@ -2531,9 +2601,16 @@ async function handleSubmission() {
     if (!balanceCheck.valid) {
         setFieldError('subBalance', 'subBalanceError', balanceCheck.error);
         hasError = true;
-    } else if (faceValueCheck.valid && balance < value * 0.2) {
-        setFieldError('subBalance', 'subBalanceError', 'Cards must have at least 20% of the original value remaining to be accepted.');
-        hasError = true;
+    } else if (faceValueCheck.valid) {
+        // Both floors must pass: 20% of this card's own face value, AND
+        // the configured absolute-dollar minimum -- whichever is stricter
+        // for this face value is the one that actually blocks. Mirrors
+        // the DB trigger exactly, via the same shared helper.
+        const floorCheck = GiftlioPricing.validateCardBalanceFloor(balanceRaw, value, AppState.pricingConfig?.minCardBalance);
+        if (!floorCheck.valid) {
+            setFieldError('subBalance', 'subBalanceError', floorCheck.error);
+            hasError = true;
+        }
     }
 
     if (saleMode === 'marketplace') {
@@ -2544,12 +2621,15 @@ async function handleSubmission() {
         } else if (balanceCheck.valid && sellerSetPrice > balance) {
             setFieldError('subSellerPrice', 'subSellerPriceError', "Asking price can't be more than the card's balance");
             hasError = true;
-        } else if (sellerSetPrice < 10) {
-            setFieldError('subSellerPrice', 'subSellerPriceError', 'Minimum card value is $10.');
-            hasError = true;
-        } else if (sellerSetPrice > 100 && isNewMarketplaceSeller) {
-            setFieldError('subSellerPrice', 'subSellerPriceError', 'New sellers are limited to $100 maximum. Complete 3 sales to unlock higher values.');
-            hasError = true;
+        } else {
+            const listingPriceCheck = GiftlioPricing.validateMinListingPrice(sellerSetPriceRaw, AppState.pricingConfig?.minListingPrice);
+            if (!listingPriceCheck.valid) {
+                setFieldError('subSellerPrice', 'subSellerPriceError', listingPriceCheck.error);
+                hasError = true;
+            } else if (sellerSetPrice > 100 && isNewMarketplaceSeller) {
+                setFieldError('subSellerPrice', 'subSellerPriceError', 'New sellers are limited to $100 maximum. Complete 3 sales to unlock higher values.');
+                hasError = true;
+            }
         }
     } else if (brand && balanceCheck.valid) {
         // Instant Sell: the actual sale price is only finalised at
@@ -2607,7 +2687,12 @@ async function handleSubmission() {
 
     let offerAmount;
     if (saleMode === 'marketplace') {
-        offerAmount = sellerSetPrice * (1 - MARKETPLACE_COMMISSION_RATE);
+        const payout = GiftlioPricing.calculateMarketplacePayout(sellerSetPrice, AppState.pricingConfig?.commissionRate);
+        if (payout.error) {
+            showToast('error', 'Pricing information is temporarily unavailable. Please try again shortly.');
+            return;
+        }
+        offerAmount = payout.sellerPayout;
     } else {
         // The ONLY calculation path for Instant Sell: current balance x
         // this brand's specific percentage, freshly loaded from the
@@ -2861,8 +2946,9 @@ function renderSubmissionCard(s, listingInfo) {
     const fillPercent = (Math.max(doneCount - 1, 0) / (stages.length - 1)) * 100;
 
     const badgeMap = { 'Pending Review': 'badge-yellow', Approved: 'badge-green', Rejected: 'badge-red', Listed: 'badge-blue', Sold: 'badge-green' };
+    const commissionPct = AppState.pricingConfig ? Math.round(AppState.pricingConfig.commissionRate * 1000) / 10 : null;
     const modeLabel = isMarketplace
-        ? `<span class="submission-mode-tag marketplace">Marketplace · 10% commission</span>`
+        ? `<span class="submission-mode-tag marketplace">Marketplace${commissionPct !== null ? ` · ${commissionPct}% commission` : ''}</span>`
         : `<span class="submission-mode-tag instant">Instant Sell</span>`;
 
     if (isRejected) {
@@ -3044,6 +3130,17 @@ async function sendCounter(offerId, originalPrice) {
 
     if (!input.value || Number.isNaN(amount) || amount < min || amount > max) {
         showToast('warning', `Counter must be between ${formatCurrency(min)} and ${formatCurrency(max)}.`);
+        return;
+    }
+
+    // A counter-offer is a price a buyer could actually end up paying, so
+    // it's held to the same floor a listing price is -- UX-only client
+    // side check (the DB doesn't separately enforce this for offers), but
+    // still sourced from the live config, never a hardcoded number.
+    await loadPricingConfig();
+    const listingPriceCheck = GiftlioPricing.validateMinListingPrice(amount, AppState.pricingConfig?.minListingPrice);
+    if (!listingPriceCheck.valid) {
+        showToast('warning', listingPriceCheck.error);
         return;
     }
 
@@ -3437,6 +3534,7 @@ function switchAdminPage(page) {
         renderDashboardCards();
         renderRevenueChart();
         renderStatusChart();
+        renderEconomicsCard();
     } else if (page === 'submissions' && !adminPageRenderedOnce.submissions) {
         const pending = submissions.filter((s) => s.statusKey === 'pending_review');
         renderInstantPendingTable(pending.filter((s) => s.saleMode !== 'marketplace'));
@@ -3452,6 +3550,7 @@ function switchAdminPage(page) {
         renderUsersTable();
         adminPageRenderedOnce.users = true;
     } else if (page === 'brands' && !adminPageRenderedOnce.brands) {
+        renderPricingConfigSettings();
         renderBrandDiscountsTable();
         adminPageRenderedOnce.brands = true;
     } else if (page === 'notifications' && !adminPageRenderedOnce.notifications) {
@@ -3850,6 +3949,96 @@ function renderDashboardCards() {
     `
         )
         .join('');
+}
+
+const PRICE_BANDS = [
+    { label: 'Under $25', min: 0, max: 25 },
+    { label: '$25-$50', min: 25, max: 50 },
+    { label: '$50-$100', min: 50, max: 100 },
+    { label: '$100+', min: 100, max: Infinity }
+];
+
+/**
+ * Real transaction economics -- average sale price, average net per
+ * transaction, total net this month, dispute count/cost this month, and
+ * net contribution by price band. Orders already carry gross_commission/
+ * stripe_fee/net_contribution (computed once, at the Stripe webhook, when
+ * the sale completed -- see api/webhook.js) so this is aggregation only,
+ * no recomputation. Dispute costs are subtracted here, at the reporting
+ * layer, rather than baked into each order's own net_contribution -- a
+ * dispute can land well after the sale it's against.
+ */
+async function renderEconomicsCard() {
+    const cardsEl = document.getElementById('economicsSummaryCards');
+    const bandTableEl = document.getElementById('economicsPriceBandTable');
+    if (!cardsEl || !bandTableEl) return;
+
+    cardsEl.innerHTML = renderSkeletonStatCards(4);
+    bandTableEl.innerHTML = '';
+
+    try {
+        const orders = AppState.adminData?.orders || [];
+        const { data: disputeRows, error: disputeError } = await supabaseClient.from('disputes').select('estimated_cost, created_at');
+        if (disputeError) throw disputeError;
+        const disputes = disputeRows || [];
+
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const isThisMonth = (dateStr) => new Date(dateStr) >= monthStart;
+
+        const ordersThisMonth = orders.filter((o) => isThisMonth(o.date));
+        const disputesThisMonth = disputes.filter((d) => isThisMonth(d.created_at));
+
+        const avgSalePrice = orders.length ? orders.reduce((sum, o) => sum + o.salePrice, 0) / orders.length : 0;
+
+        const ordersWithNet = orders.filter((o) => o.netContribution !== null);
+        const avgNetPerTransaction = ordersWithNet.length ? ordersWithNet.reduce((sum, o) => sum + o.netContribution, 0) / ordersWithNet.length : 0;
+
+        const grossNetThisMonth = ordersThisMonth.filter((o) => o.netContribution !== null).reduce((sum, o) => sum + o.netContribution, 0);
+        const disputeCostThisMonth = disputesThisMonth.reduce((sum, d) => sum + Number(d.estimated_cost || 0), 0);
+        const totalNetThisMonth = grossNetThisMonth - disputeCostThisMonth;
+
+        const cards = [
+            { label: 'Avg. Sale Price', value: formatCurrency(avgSalePrice) },
+            { label: 'Avg. Net per Transaction', value: formatCurrency(avgNetPerTransaction) },
+            { label: 'Total Net This Month', value: formatCurrency(totalNetThisMonth) },
+            { label: 'Disputes This Month', value: `${disputesThisMonth.length} (${formatCurrency(disputeCostThisMonth)})` }
+        ];
+        cardsEl.innerHTML = cards
+            .map((c) => `<div class="summary-card"><div class="summary-label">${c.label}</div><div class="summary-value">${c.value}</div></div>`)
+            .join('');
+
+        const bandRows = PRICE_BANDS.map((band) => {
+            const bandOrders = orders.filter((o) => o.salePrice >= band.min && o.salePrice < band.max);
+            const bandOrdersWithNet = bandOrders.filter((o) => o.netContribution !== null);
+            const totalNet = bandOrdersWithNet.reduce((sum, o) => sum + o.netContribution, 0);
+            const avgNet = bandOrdersWithNet.length ? totalNet / bandOrdersWithNet.length : 0;
+            return { ...band, count: bandOrders.length, totalNet, avgNet };
+        });
+
+        bandTableEl.innerHTML = `
+            <table>
+                <thead><tr><th>Price Band</th><th>Orders</th><th>Total Net</th><th>Avg. Net</th></tr></thead>
+                <tbody>
+                    ${bandRows
+                        .map(
+                            (b) => `
+                        <tr>
+                            <td data-label="Price Band">${b.label}</td>
+                            <td data-label="Orders">${b.count}</td>
+                            <td data-label="Total Net">${formatCurrency(b.totalNet)}</td>
+                            <td data-label="Avg. Net">${formatCurrency(b.avgNet)}</td>
+                        </tr>
+                    `
+                        )
+                        .join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        console.error('Failed to load economics data:', error);
+        cardsEl.innerHTML = '<p>Unable to load economics data.</p>';
+    }
 }
 
 /**
@@ -5317,6 +5506,115 @@ async function saveValidationRules(brand) {
     }
 }
 
+/**
+ * Platform economics settings: the three pricing_config values, editable
+ * from admin. Every change is confirmed before saving and written to the
+ * audit log -- these numbers affect every seller and every future sale,
+ * not something a stray click should be able to silently alter.
+ */
+async function renderPricingConfigSettings() {
+    const container = document.getElementById('pricingConfigSettings');
+    if (!container) return;
+
+    container.innerHTML = renderSkeletonLines(3);
+
+    const config = await loadPricingConfig();
+    if (!config) {
+        container.innerHTML = '<p>Unable to load pricing configuration.</p>';
+        return;
+    }
+
+    const commissionPct = Math.round(config.commissionRate * 10000) / 100;
+
+    container.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div class="form-group">
+                <label for="pcCommissionInput">Marketplace Commission (%)</label>
+                <input type="number" id="pcCommissionInput" min="0" max="100" step="0.01" value="${commissionPct}">
+                <span class="error-msg" id="pcCommissionError"></span>
+            </div>
+            <div class="form-group">
+                <label for="pcMinBalanceInput">Minimum Card Balance ($)</label>
+                <input type="number" id="pcMinBalanceInput" min="0" step="0.01" value="${config.minCardBalance.toFixed(2)}">
+                <span class="error-msg" id="pcMinBalanceError"></span>
+                <p class="field-hint-text">Applies in addition to the existing 20%-of-face-value rule -- both must pass.</p>
+            </div>
+            <div class="form-group">
+                <label for="pcMinListingInput">Minimum Listing Price ($)</label>
+                <input type="number" id="pcMinListingInput" min="0" step="0.01" value="${config.minListingPrice.toFixed(2)}">
+                <span class="error-msg" id="pcMinListingError"></span>
+            </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="savePricingConfig()">Save Changes</button>
+    `;
+}
+
+async function savePricingConfig() {
+    const commissionInput = document.getElementById('pcCommissionInput');
+    const minBalanceInput = document.getElementById('pcMinBalanceInput');
+    const minListingInput = document.getElementById('pcMinListingInput');
+    document.getElementById('pcCommissionError').textContent = '';
+    document.getElementById('pcMinBalanceError').textContent = '';
+    document.getElementById('pcMinListingError').textContent = '';
+
+    const commissionPct = Number(commissionInput.value);
+    const minBalance = Number(minBalanceInput.value);
+    const minListing = Number(minListingInput.value);
+
+    let hasError = false;
+    if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
+        document.getElementById('pcCommissionError').textContent = 'Enter a commission percentage between 0 and 100.';
+        hasError = true;
+    }
+    if (!Number.isFinite(minBalance) || minBalance < 0) {
+        document.getElementById('pcMinBalanceError').textContent = 'Enter a minimum balance of 0 or more.';
+        hasError = true;
+    }
+    if (!Number.isFinite(minListing) || minListing < 0) {
+        document.getElementById('pcMinListingError').textContent = 'Enter a minimum listing price of 0 or more.';
+        hasError = true;
+    }
+    if (hasError) return;
+
+    const commissionRate = Math.round((commissionPct / 100) * 10000) / 10000;
+    const previous = AppState.pricingConfig;
+
+    showConfirmModal({
+        title: 'Save Pricing Changes',
+        message: `Change commission to ${commissionPct}%, minimum card balance to $${minBalance.toFixed(2)}, and minimum listing price to $${minListing.toFixed(2)}? This applies to every submission and sale from now on.`,
+        confirmLabel: 'Save Changes',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('pricing_config')
+                        .update({
+                            marketplace_commission_rate: commissionRate,
+                            min_card_balance: minBalance,
+                            min_listing_price: minListing,
+                            updated_at: new Date().toISOString(),
+                            updated_by: AppState.currentUser.id
+                        })
+                        .eq('id', 1);
+                    if (error) throw error;
+                });
+
+                await logAdminAction('update_pricing_config', 'pricing_config', null, null, {
+                    previous: previous
+                        ? { commissionRate: previous.commissionRate, minCardBalance: previous.minCardBalance, minListingPrice: previous.minListingPrice }
+                        : null,
+                    new: { commissionRate, minCardBalance: minBalance, minListingPrice: minListing }
+                });
+
+                showToast('success', 'Pricing configuration updated.');
+                await renderPricingConfigSettings();
+            } catch (error) {
+                showError(error, 'Unable to save pricing configuration.');
+            }
+        }
+    });
+}
+
 async function renderBrandDiscountsTable() {
     const container = document.getElementById('brandDiscountsTable');
     if (!container) return;
@@ -5535,7 +5833,7 @@ async function approveSubmission(submissionDbId) {
             let commissionRate;
             let sellerPayoutAmount;
 
-            await loadBrandDiscounts();
+            await Promise.all([loadBrandDiscounts(), loadPricingConfig()]);
             const brandConfigForApproval = AppState.brandDiscounts[sub.brand];
             if (brandConfigForApproval && !brandConfigForApproval.retailerEnabled) {
                 throw new Error(`Cannot approve: ${sub.brand} is currently disabled. Re-enable it in Brand Discounts first, or reject this submission.`);
@@ -5544,8 +5842,16 @@ async function approveSubmission(submissionDbId) {
             if (isMarketplace) {
                 salePrice = Number(sub.sellerSetPrice.toFixed(2));
                 discount = Math.max(0, Math.min(100, Math.round((1 - salePrice / listingFaceValue) * 100)));
-                commissionRate = MARKETPLACE_COMMISSION_RATE * 100;
-                sellerPayoutAmount = Number((salePrice * (1 - MARKETPLACE_COMMISSION_RATE)).toFixed(2));
+                // Locked in at approval time -- this is the rate THIS
+                // listing was actually priced with, stored on the listing
+                // itself, so it stays correct even if an admin tunes the
+                // global rate later before this specific card sells.
+                const payout = GiftlioPricing.calculateMarketplacePayout(salePrice, AppState.pricingConfig?.commissionRate);
+                if (payout.error) {
+                    throw new Error('Cannot approve: pricing configuration is missing (marketplace commission rate). Set it in Brand Settings first.');
+                }
+                commissionRate = AppState.pricingConfig.commissionRate * 100;
+                sellerPayoutAmount = payout.sellerPayout;
             } else {
                 const brandConfig = AppState.brandDiscounts[sub.brand];
                 // The seller's payout (sub.offerAmount, already calculated
@@ -6074,7 +6380,7 @@ async function restoreRoute(routeState = {}, historyMode = 'none') {
                 buyerName: AppState.currentUser.name,
                 buyerEmail: AppState.currentUser.email,
                 buyerPhone: '',
-                ...GiftlioPricing.calculateCheckoutTotal(listing.salePrice)
+                total: listing.salePrice
             };
         }
 
