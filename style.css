@@ -61,11 +61,16 @@
     padding: 0;
 }
 
+/* Nothing with an intrinsic size should ever be able to push the page
+   wider than its container -- a real image/table/etc. that's wider than
+   its column is exactly the kind of thing overflow-x: hidden on body
+   would otherwise silently mask instead of prevent. */
+img, svg, video, table, pre {
+    max-width: 100%;
+}
+
 html {
     scroll-behavior: smooth;
-    /* Safety net: nothing should ever be able to create page-level
-       horizontal scroll, even if a future addition forgets to wrap it. */
-    overflow-x: hidden;
     width: 100%;
 }
 
@@ -86,6 +91,15 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* Safety net only, on body alone -- nothing should ever be able to
+       create page-level horizontal scroll. Deliberately NOT also set on
+       html: overflow-x != visible forces the UA to compute overflow-y as
+       auto too (per spec), so setting this on both html and body creates
+       two independent nested scroll containers. .admin-sidebar uses
+       position: sticky on desktop, and that breaks (or gets ambiguous)
+       exactly when a sticky element's containing block ends up between
+       two scroll containers instead of one. One container (body) doesn't
+       have that problem in practice; two did. */
     overflow-x: hidden;
     width: 100%;
     -webkit-font-smoothing: antialiased;
@@ -190,18 +204,30 @@ a:hover {
     bottom: 0;
     left: 0;
     right: 0;
+    max-width: 100vw;
     background: var(--white);
     border-top: 1px solid var(--gray-200);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
     z-index: 900;
+    /* Hard structural guarantee, not just "should fit": even if a label
+       gets longer, a font renders wider than expected, or a translation
+       adds a longer word, the row clips instead of pushing the rightmost
+       item (Profile) past the edge. */
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .bottom-nav-inner {
     display: flex;
+    max-width: 100%;
 }
 
 .bottom-nav-item {
     flex: 1;
+    /* Flex items default to min-width: auto, which refuses to shrink
+       below the label's own intrinsic width -- with 5 items that's
+       exactly what can force this row wider than the viewport. */
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1833,7 +1859,12 @@ tr:hover td {
     }
 
     .dashboard-container {
-        grid-template-columns: 1fr;
+        /* minmax(0, 1fr), not bare 1fr -- a grid track's implicit minimum
+           is auto (its content's own min-width), which can be wider than
+           the track itself and push the whole grid past the viewport by
+           a fraction of a pixel at some widths. minmax(0, 1fr) is the
+           grid equivalent of min-width: 0 on a flex child. */
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .dashboard-sidebar {
@@ -2867,18 +2898,27 @@ tr:hover td {
 /* ===== VISUALLY HIDDEN (screen-reader only) =====
    Standard accessible pattern: content is announced by screen readers but
    not shown visually. Used for page-level h1s where the visible heading
-   already exists lower in the DOM (e.g. inside a tab), so sighted users
-   see no change but screen reader users still get a proper page landmark. */
+   already exists lower in the DOM (e.g. inside a tab), and for the
+   backing <select id="subBrand"> that mirrors the visual tile picker.
+   !important on every property: a plain class has specificity (0,1,0),
+   which loses to ANY element-scoped rule like ".form-group select"
+   (0,1,1) -- that's exactly how #subBrand ended up rendering at full
+   width, absolutely positioned, and overflowing the viewport. This class
+   must always win regardless of what else targets the element, so
+   nothing added later can silently blow an element back open the same
+   way. clip-path is the current standard (clip is the deprecated
+   fallback some older engines still need). */
 .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
 }
 
 /* ===== SALE MODE CHOICE (sell submission form) ===== */
