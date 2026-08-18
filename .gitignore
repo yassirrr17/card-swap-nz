@@ -15,3 +15,9 @@ node_modules/
 .vercel/
 .DS_Store
 *.log
+
+# Security audit report and its test harness -- documents live exploit
+# paths against the production database and must never be committed to
+# this public repo, even after the findings are fixed.
+DIAGNOSTIC.md
+/diagnostics
