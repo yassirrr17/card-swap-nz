@@ -15,15 +15,38 @@ module.exports = async function handler(req, res) {
     }
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const resendApiKey = process.env.RESEND_API_KEY;
     const emailFrom = process.env.EMAIL_FROM || 'Giftlio <onboarding@resend.dev>';
 
-    if (!supabaseUrl || !supabaseServiceRoleKey || !resendApiKey) {
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey || !resendApiKey) {
         return res.status(500).json({ error: 'Notification service is not configured.' });
     }
 
+    // Step 1: confirm this request carries a valid, current Supabase
+    // session token -- same pattern as deliver-order.js.
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({ error: 'Missing authentication token.' });
+    }
+
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+    if (userError || !userData?.user) {
+        return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+    }
+
+    // Step 2: confirm that verified user is actually an admin, checked
+    // server-side via the service-role client -- never trust a role sent
+    // in the request body.
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+    const { data: profile, error: profileError } = await supabaseAdmin.from('profiles').select('role').eq('id', userData.user.id).single();
+    if (profileError || profile?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required.' });
+    }
+
     const { emailId } = req.body || {};
 
     let query = supabaseAdmin.from('email_queue').select('*').eq('status', 'failed').lt('attempts', 5);

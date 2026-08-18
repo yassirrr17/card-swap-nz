@@ -1,17 +1,14 @@
 const { createClient } = require('@supabase/supabase-js');
+const { EVENTS } = require('../notification-templates.js');
 
 /**
- * Reusable admin notification endpoint. Every event type (submission
- * received, approved, rejected, card sold, payout marked paid, and any
- * future alert -- low inventory, suspicious activity, dispute raised)
- * calls this SAME endpoint with a different eventType/subject/body. Adding
- * a new alert type is a one-line call from wherever that event happens,
- * not a new endpoint.
- *
- * Always queues to email_queue first (status: pending), then attempts to
- * send. If sending fails, the row stays queryable as 'failed' for retry
- * (see api/retry-failed-emails.js) instead of the notification silently
- * vanishing.
+ * Sends an alert to the fixed admin inbox. The client supplies only
+ * { eventType, entityId } -- subject and body come from
+ * notification-templates.js, composed from a fresh DB read of the entity.
+ * There is no client-supplied subject or HTML: an authenticated user can
+ * trigger one of these only for an entity they're a genuine party to
+ * (their own submission, their own flagged account), or if they're an
+ * admin.
  */
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -20,29 +17,62 @@ module.exports = async function handler(req, res) {
     }
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const resendApiKey = process.env.RESEND_API_KEY;
     const emailFrom = process.env.EMAIL_FROM || 'Giftlio <onboarding@resend.dev>';
     const adminInbox = process.env.ADMIN_NOTIFY_EMAIL || 'giftlio.co.nz@gmail.com';
 
-    if (!supabaseUrl || !supabaseServiceRoleKey || !resendApiKey) {
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey || !resendApiKey) {
         console.error('Notification endpoint missing required env vars.');
         return res.status(500).json({ error: 'Notification service is not configured.' });
     }
 
-    const { eventType, subject, bodyHtml, relatedId } = req.body || {};
+    // Called both by admin actions and by an ordinary seller's own
+    // submission (submission_received) -- can't be admin-only. Requiring a
+    // real session at least ties every alert to an identifiable,
+    // suspendable account rather than any anonymous caller on the internet.
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({ error: 'Missing authentication token.' });
+    }
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+    if (userError || !userData?.user) {
+        return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+    }
+    const callerId = userData.user.id;
 
+    const { eventType, entityId } = req.body || {};
     if (typeof eventType !== 'string' || !eventType.trim()) {
         return res.status(400).json({ error: 'eventType is required.' });
     }
-    if (typeof subject !== 'string' || !subject.trim()) {
-        return res.status(400).json({ error: 'subject is required.' });
+    if (typeof entityId !== 'string' || !entityId.trim()) {
+        return res.status(400).json({ error: 'entityId is required.' });
     }
-    if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) {
-        return res.status(400).json({ error: 'bodyHtml is required.' });
+
+    const eventDef = EVENTS[eventType]?.admin;
+    if (!eventDef) {
+        return res.status(400).json({ error: `Unknown or unsupported eventType: ${eventType}` });
     }
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+    const { data: profile } = await supabaseAdmin.from('profiles').select('role').eq('id', callerId).single();
+    const isCallerAdmin = profile?.role === 'admin';
+
+    const ctx = await EVENTS[eventType].fetch(supabaseAdmin, entityId);
+    if (!ctx) {
+        return res.status(404).json({ error: 'This item could not be found.' });
+    }
+
+    if (!eventDef.authorize(ctx, callerId, isCallerAdmin)) {
+        return res.status(403).json({ error: "You aren't authorized to trigger this notification." });
+    }
+
+    const subject = eventDef.subject(ctx, req);
+    const bodyHtml = eventDef.body(ctx, req);
 
     const { data: queued, error: queueError } = await supabaseAdmin
         .from('email_queue')
@@ -51,7 +81,7 @@ module.exports = async function handler(req, res) {
             subject,
             body_html: bodyHtml,
             event_type: eventType,
-            related_id: relatedId || null,
+            related_id: entityId,
             status: 'pending',
             attempts: 1
         })

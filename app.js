@@ -622,9 +622,51 @@ function setFieldError(inputId, errorId, message) {
     if (errorEl) errorEl.textContent = message;
 }
 
+// Supabase Auth error codes an end user can act on themselves -- password
+// strength, rate limits, an expired/invalid link, wrong credentials, a
+// malformed email. Explicit ALLOWLIST, not a blanket "it's an auth error"
+// pass-through: any code not listed here -- including ones a future
+// Supabase release adds that we've never seen -- falls through to the safe
+// generic fallback instead of leaking by default. Codes that would confirm
+// whether an email/account already exists (user_already_exists,
+// email_exists, phone_exists, identity_already_exists, user_banned, ...)
+// are deliberately NOT here: on a marketplace, that's account enumeration
+// -- it hands an attacker a way to check who has an account to phish.
+const ALLOWED_AUTH_ERROR_CODES = new Set([
+    'invalid_credentials',
+    'weak_password',
+    'same_password',
+    'validation_failed',
+    'email_address_invalid',
+    'over_request_rate_limit',
+    'over_email_send_rate_limit',
+    'over_sms_send_rate_limit',
+    'otp_expired',
+    'flow_state_expired',
+    'flow_state_not_found',
+    'bad_code_verifier',
+    'session_expired',
+    'captcha_failed'
+]);
+
 function showError(error, fallback = 'Something went wrong. Please try again.') {
     console.error(error);
-    showToast('error', error?.message || fallback);
+    let showMessage;
+    if (error?.__isAuthError) {
+        // Supabase Auth errors carry this internal marker regardless of
+        // instanceof/module identity -- it's how supabase-js itself
+        // recognizes its own error types (see @supabase/auth-js).
+        showMessage = ALLOWED_AUTH_ERROR_CODES.has(error.code);
+    } else {
+        // Only ever surface error.message when it's a message THIS app
+        // wrote itself (a plain `throw new Error('...')`, which never
+        // carries a .code). A raw Supabase/Postgres error always has a
+        // .code (SQLSTATE or a PostgREST code) and its .message can
+        // contain internal details -- constraint names, column names,
+        // policy/trigger text -- that must never reach a user.
+        showMessage = error instanceof Error && !error.code;
+    }
+    showToast('error', (showMessage && error.message) || fallback);
 }
 
 function listingRowToView(row) {
@@ -870,10 +912,12 @@ async function handleSignup() {
             router('login');
         });
     } catch (error) {
-        if ((error?.message || '').toLowerCase().includes('already registered')) {
-            document.getElementById('signupEmailError').textContent = 'Email already registered';
-            return;
-        }
+        // Deliberately no special case for "email already registered" --
+        // confirming that would be account enumeration (handing an
+        // attacker a way to check who has an account on this marketplace).
+        // showError()'s auth-error allowlist already keeps this on the
+        // generic fallback below; user_already_exists/email_exists are not
+        // in that allowlist on purpose.
         showError(error, 'Unable to create your account.');
     }
 }
@@ -1572,26 +1616,25 @@ async function submitOffer(listingId, sellerId, originalPrice) {
     }
 
     try {
+        let offerDbId;
         await withLoading(async () => {
-            const { error } = await supabaseClient.from('listing_offers').insert({
-                listing_id: listingId,
-                buyer_id: AppState.currentUser.id,
-                seller_id: sellerId,
-                original_price: originalPrice,
-                offer_amount: amount,
-                status: 'pending'
-            });
+            const { data, error } = await supabaseClient
+                .from('listing_offers')
+                .insert({
+                    listing_id: listingId,
+                    buyer_id: AppState.currentUser.id,
+                    seller_id: sellerId,
+                    original_price: originalPrice,
+                    offer_amount: amount,
+                    status: 'pending'
+                })
+                .select('id')
+                .single();
             if (error) throw error;
+            offerDbId = data.id;
         });
 
-        await notifySeller(
-            sellerId,
-            `New offer on your listing: ${formatCurrency(amount)}`,
-            `<p>${escapeHtml(AppState.currentUser.name)} sent an offer of <strong>${formatCurrency(amount)}</strong> on your listing (listed at ${formatCurrency(originalPrice)}).</p>
-             <p><a href="${window.location.origin}/seller-dashboard">Respond to this offer</a></p>`,
-            'offer_received',
-            listingId
-        );
+        await notifySeller('offer_received', offerDbId);
 
         showToast('success', 'Offer sent to the seller.');
         viewListing(listingId, { historyMode: 'none' });
@@ -1879,15 +1922,21 @@ async function placeOrder() {
 
     try {
         await withLoading(async () => {
+            const {
+                data: { session },
+                error: sessionError
+            } = await supabaseClient.auth.getSession();
+            if (sessionError) throw sessionError;
+            if (!session) throw new Error('Your session has expired. Please log in again.');
+
             const response = await fetch('/api/create-checkout', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
                 body: JSON.stringify({
                     listingId: listing.id,
                     brand: listing.brand,
                     faceValue: listing.faceValue,
                     salePrice: listing.salePrice,
-                    buyerId: AppState.currentUser.id,
                     buyerName: AppState.currentOrder.buyerName,
                     buyerEmail: AppState.currentOrder.buyerEmail,
                     buyerPhone: AppState.currentOrder.buyerPhone
@@ -2756,51 +2805,41 @@ async function handleSubmission() {
     }
 
     try {
+        let submissionDbId;
         await withLoading(async () => {
-            const { error } = await supabaseClient.from('submissions').insert({
-                public_id: submissionPublicId,
-                seller_id: AppState.currentUser.id,
-                seller_name: AppState.currentUser.name,
-                brand,
-                face_value: value,
-                current_balance: balance,
-                expiry_date: expiry,
-                issue_date: issueDate || null,
-                card_number: cardNum,
-                pin: pin || null,
-                receipt_filename: document.getElementById('fileName').textContent || null,
-                receipt_storage_path: receiptStoragePath,
-                card_photo_filename: document.getElementById('cardPhotoFileName').textContent || null,
-                card_photo_storage_path: cardPhotoStoragePath,
-                offer_amount: offerAmount,
-                sale_mode: saleMode,
-                seller_set_price: sellerSetPrice,
-                status: 'pending_review'
-            });
+            const { data, error } = await supabaseClient
+                .from('submissions')
+                .insert({
+                    public_id: submissionPublicId,
+                    seller_id: AppState.currentUser.id,
+                    seller_name: AppState.currentUser.name,
+                    brand,
+                    face_value: value,
+                    current_balance: balance,
+                    expiry_date: expiry,
+                    issue_date: issueDate || null,
+                    card_number: cardNum,
+                    pin: pin || null,
+                    receipt_filename: document.getElementById('fileName').textContent || null,
+                    receipt_storage_path: receiptStoragePath,
+                    card_photo_filename: document.getElementById('cardPhotoFileName').textContent || null,
+                    card_photo_storage_path: cardPhotoStoragePath,
+                    offer_amount: offerAmount,
+                    sale_mode: saleMode,
+                    seller_set_price: sellerSetPrice,
+                    status: 'pending_review'
+                })
+                .select('id')
+                .single();
 
             if (error) throw error;
+            submissionDbId = data.id;
         });
 
-        await notifyBoth({
-            eventType: 'submission_received',
-            relatedId: null,
-            adminSubject: `New Submission for Review: ${brand} #${submissionPublicId}`,
-            adminBody: `<p><strong>Retailer:</strong> ${escapeHtml(brand)}</p>
-             <p><strong>Original Value:</strong> ${formatCurrency(value)}</p>
-             <p><strong>Current Balance:</strong> ${formatCurrency(balance)}</p>
-             <p><strong>Card Number:</strong> ${escapeHtml(cardNum)}</p>
-             <p><strong>PIN:</strong> ${pin ? escapeHtml(pin) : 'Not provided'}</p>
-             <p><strong>Expiry:</strong> ${escapeHtml(expiry)}</p>
-             <p><strong>Sale Mode:</strong> ${saleMode}${saleMode === 'marketplace' ? ` (seller asking price: ${formatCurrency(sellerSetPrice)})` : ''}</p>
-             <p><strong>Calculated Offer:</strong> ${formatCurrency(offerAmount)}</p>
-             <p><strong>Seller:</strong> ${escapeHtml(AppState.currentUser.name)} (${escapeHtml(AppState.currentUser.email)})</p>
-             <p><strong>Submitted:</strong> ${new Date().toLocaleString('en-NZ')}</p>
-             <p><a href="${window.location.origin}/admin">Review this submission in the admin panel</a></p>`,
-            sellerId: AppState.currentUser.id,
-            sellerSubject: `We've received your ${brand} card submission`,
-            sellerBody: `<p>Hi ${escapeHtml(AppState.currentUser.name)},</p>
-             <p>We've received your ${escapeHtml(brand)} gift card submission (#${escapeHtml(submissionPublicId)}) and it's now being reviewed. We'll email you as soon as it's been looked at.</p>`
-        });
+        // Content and recipient for both emails are composed server-side
+        // from this submission row (see notification-templates.js) -- the
+        // client only ever says which event happened and for which row.
+        await notifyBoth('submission_received', submissionDbId);
 
         // Seller verification queue: a new/unverified seller submitting a
         // high-value card gets flagged for admin review before it's business
@@ -2812,13 +2851,7 @@ async function handleSubmission() {
             if (!flagError) {
                 AppState.currentUser.verificationStatus = 'flagged';
                 justFlagged = true;
-                await notifyAdmin(
-                    'seller_flagged_for_verification',
-                    `Seller flagged for verification: ${escapeHtml(AppState.currentUser.name)}`,
-                    `<p>${escapeHtml(AppState.currentUser.name)} (${escapeHtml(AppState.currentUser.email)}) submitted a ${escapeHtml(brand)} card worth ${formatCurrency(value)} -- above the ${formatCurrency(SELLER_VERIFICATION_VALUE_THRESHOLD)} auto-review threshold, and this account was still unverified.</p>
-                     <p><a href="${window.location.origin}/admin">Review in the Seller Verification queue</a></p>`,
-                    AppState.currentUser.id
-                );
+                await notifyAdmin('seller_flagged_for_verification', submissionDbId);
             }
         }
 
@@ -3088,8 +3121,6 @@ function showCounterInput(offerId) {
 
 async function respondToOffer(offerId, action) {
     try {
-        const { data: offer } = await supabaseClient.from('listing_offers').select('*').eq('id', offerId).single();
-
         await withLoading(async () => {
             const { error } = await supabaseClient
                 .from('listing_offers')
@@ -3098,22 +3129,9 @@ async function respondToOffer(offerId, action) {
             if (error) throw error;
         });
 
-        const { data: buyerProfile } = await supabaseClient.from('profiles').select('email, name').eq('id', offer.buyer_id).single();
-        if (buyerProfile?.email) {
-            await fetch('/api/notify-seller', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sellerId: offer.buyer_id,
-                    subject: action === 'accept' ? `Your offer was accepted!` : `Your offer wasn't accepted`,
-                    bodyHtml:
-                        action === 'accept'
-                            ? `<p>Great news — your offer of ${formatCurrency(offer.offer_amount)} was accepted. Head back to the listing to complete your purchase at this price.</p>`
-                            : `<p>The seller declined your offer of ${formatCurrency(offer.offer_amount)}. You're welcome to browse other listings or make a new offer.</p>`,
-                    eventType: `offer_${action}ed`
-                })
-            });
-        }
+        // Recipient (the buyer) and content are composed server-side from
+        // this offer row -- see notification-templates.js.
+        await notifySeller(action === 'accept' ? 'offer_accepted' : 'offer_rejected', offerId);
 
         showToast('success', action === 'accept' ? 'Offer accepted.' : 'Offer rejected.');
         renderSellerOffers();
@@ -3145,8 +3163,6 @@ async function sendCounter(offerId, originalPrice) {
     }
 
     try {
-        const { data: offer } = await supabaseClient.from('listing_offers').select('buyer_id').eq('id', offerId).single();
-
         await withLoading(async () => {
             const { error } = await supabaseClient
                 .from('listing_offers')
@@ -3155,16 +3171,9 @@ async function sendCounter(offerId, originalPrice) {
             if (error) throw error;
         });
 
-        await fetch('/api/notify-seller', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sellerId: offer.buyer_id,
-                subject: `The seller countered your offer with ${formatCurrency(amount)}`,
-                bodyHtml: `<p>The seller countered your offer with <strong>${formatCurrency(amount)}</strong>. Head back to the listing to accept or walk away.</p>`,
-                eventType: 'offer_countered'
-            })
-        });
+        // Recipient (the buyer) and content (including the just-set
+        // counter_amount) are composed server-side from this offer row.
+        await notifySeller('offer_countered', offerId);
 
         showToast('success', 'Counter offer sent.');
         renderSellerOffers();
@@ -3880,15 +3889,7 @@ async function releaseMarketplacePayout(orderDbId) {
                     });
 
                     if (order.listings?.seller_id) {
-                        await notifySeller(
-                            order.listings.seller_id,
-                            `Your payout for ${order.listings.brand} has been sent`,
-                            `<p>Hi ${escapeHtml(order.listings.seller_name || '')},</p>
-                             <p>Your payout of <strong>${formatCurrency(order.listings.seller_payout_amount || 0)}</strong> for your ${escapeHtml(order.listings.brand)} card has been sent.</p>
-                             <p>Thanks for selling with Giftlio!</p>`,
-                            'marketplace_payout_released',
-                            orderDbId
-                        );
+                        await notifySeller('marketplace_payout_released', orderDbId);
                     }
 
                     showToast('success', 'Payout released.');
@@ -4678,9 +4679,16 @@ function goToEmailQueuePage(page) {
 async function retryOneEmail(emailId) {
     try {
         await withLoading(async () => {
+            const {
+                data: { session },
+                error: sessionError
+            } = await supabaseClient.auth.getSession();
+            if (sessionError) throw sessionError;
+            if (!session) throw new Error('Your session has expired. Please log in again.');
+
             const result = await fetch('/api/retry-failed-emails', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
                 body: JSON.stringify({ emailId })
             });
             const data = await result.json();
@@ -4699,7 +4707,18 @@ async function retryOneEmail(emailId) {
 async function retryAllFailedEmails() {
     try {
         await withLoading(async () => {
-            const result = await fetch('/api/retry-failed-emails', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            const {
+                data: { session },
+                error: sessionError
+            } = await supabaseClient.auth.getSession();
+            if (sessionError) throw sessionError;
+            if (!session) throw new Error('Your session has expired. Please log in again.');
+
+            const result = await fetch('/api/retry-failed-emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                body: JSON.stringify({})
+            });
             const data = await result.json();
             if (!result.ok) throw new Error(data.error || 'Retry failed.');
             showToast('info', `Retried ${data.total} email(s): ${data.retried} sent, ${data.stillFailed} still failed.`);
@@ -5963,21 +5982,7 @@ async function approveSubmission(submissionDbId) {
             saleMode: sub.saleMode,
             offerAmount: sub.offerAmount
         });
-        await notifyBoth({
-            eventType: 'submission_approved',
-            relatedId: submissionDbId,
-            adminSubject: `Submission Approved: ${sub.brand} #${sub.id}`,
-            adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub.sellerName)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Mode:</strong> ${sub.saleMode}</p><p><strong>Offer:</strong> ${formatCurrency(sub.offerAmount)}</p>`,
-            sellerId: sub.sellerId,
-            sellerSubject: `Your ${sub.brand} card submission was approved!`,
-            sellerBody: `<p>Hi ${escapeHtml(sub.sellerName)},</p>
-             <p>Good news — your ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.id)}) has been reviewed and approved.</p>
-             ${
-                 sub.saleMode === 'marketplace'
-                     ? `<p>It's now live on the Giftlio marketplace at your asking price. You'll be paid <strong>${formatCurrency(sub.offerAmount)}</strong> once a buyer purchases it -- we'll email you the moment that happens.</p>`
-                     : `<p>Your payout of <strong>${formatCurrency(sub.offerAmount)}</strong> is on its way. This card is now Giftlio's, so there's nothing further for you to track -- you're all done here.</p>`
-             }`
-        });
+        await notifyBoth('submission_approved', submissionDbId);
 
         showToast('success', 'Submission approved and listed on marketplace!');
         renderAdmin();
@@ -6012,22 +6017,53 @@ async function logAdminAction(actionType, targetType, targetId, brand, details) 
 }
 
 /**
- * Sends an admin notification email via the reusable /api/send-notification
- * endpoint. Every event type calls this same function -- adding a new
- * alert (low inventory, suspicious activity, dispute raised) anywhere else
- * in the app is one call to notifyAdmin(...), not a new endpoint.
+ * Sends an admin alert via /api/send-notification. The client says only
+ * WHICH event happened and for WHICH row -- the recipient (always the
+ * fixed admin inbox), the authorization check, and every word of the
+ * email come from notification-templates.js reading entityId fresh from
+ * the DB, server-side. See notification-templates.js for the full event
+ * catalog.
  */
-/**
- * Sends a transactional email to a specific seller (via /api/notify-seller)
- * -- for outcomes like approval/rejection, where the SELLER needs to know
- * what happened, not the admin who just took the action.
- */
-async function notifySeller(sellerId, subject, bodyHtml, eventType, relatedId) {
+async function notifyAdmin(eventType, entityId) {
     try {
+        const {
+            data: { session }
+        } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Your session has expired. Please log in again.');
+
+        const response = await fetch('/api/send-notification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ eventType, entityId })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Notification failed');
+        if (data.queued) {
+            showToast('warning', 'Notification email is queued for retry (send failed once).');
+        }
+    } catch (error) {
+        console.error('notifyAdmin failed:', error);
+        showToast('warning', 'Could not send the admin notification email.');
+    }
+}
+
+/**
+ * Sends a transactional email to whichever real party an event's recipient
+ * actually is (via /api/notify-seller) -- a seller for a submission
+ * outcome, a buyer for an offer response, etc. Same client contract as
+ * notifyAdmin: only eventType + entityId, never a recipient or content.
+ */
+async function notifySeller(eventType, entityId) {
+    try {
+        const {
+            data: { session }
+        } = await supabaseClient.auth.getSession();
+        if (!session) throw new Error('Your session has expired. Please log in again.');
+
         const response = await fetch('/api/notify-seller', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sellerId, subject, bodyHtml, eventType, relatedId })
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ eventType, entityId })
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Notification failed');
@@ -6041,35 +6077,13 @@ async function notifySeller(sellerId, subject, bodyHtml, eventType, relatedId) {
 }
 
 /**
- * Sends BOTH the admin notification (always, every event, both models --
- * admin needs full visibility) AND the seller notification (content and
- * whether it fires at all depends on their sale mode). This is the
- * standard entry point for submission-lifecycle events now; call
- * notifyAdmin/notifySeller directly only for one-sided events.
+ * Sends BOTH the admin alert AND the seller/buyer-facing notification for
+ * one event -- the standard entry point for submission-lifecycle events.
+ * Call notifyAdmin/notifySeller directly only for one-sided events.
  */
-async function notifyBoth({ eventType, relatedId, adminSubject, adminBody, sellerId, sellerSubject, sellerBody }) {
-    await notifyAdmin(eventType, adminSubject, adminBody, relatedId);
-    if (sellerId && sellerSubject && sellerBody) {
-        await notifySeller(sellerId, sellerSubject, sellerBody, eventType, relatedId);
-    }
-}
-
-async function notifyAdmin(eventType, subject, bodyHtml, relatedId) {
-    try {
-        const response = await fetch('/api/send-notification', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ eventType, subject, bodyHtml, relatedId })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Notification failed');
-        if (data.queued) {
-            showToast('warning', 'Notification email is queued for retry (send failed once).');
-        }
-    } catch (error) {
-        console.error('notifyAdmin failed:', error);
-        showToast('warning', 'Could not send the admin notification email.');
-    }
+async function notifyBoth(eventType, entityId) {
+    await notifyAdmin(eventType, entityId);
+    await notifySeller(eventType, entityId);
 }
 
 /**
@@ -6214,17 +6228,7 @@ async function markSubmissionPaid(submissionDbId) {
                     if (error) throw error;
                 });
                 await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
-                await notifyBoth({
-                    eventType: 'payout_marked_paid',
-                    relatedId: submissionDbId,
-                    adminSubject: `Payout Marked Paid: ${sub?.brand} #${sub?.public_id}`,
-                    adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub?.seller_name || '')}</p><p><strong>Amount:</strong> ${formatCurrency(sub?.offer_amount || 0)}</p>`,
-                    sellerId: sub?.seller_id,
-                    sellerSubject: `Your payout for ${sub?.brand} has been sent`,
-                    sellerBody: `<p>Hi ${escapeHtml(sub?.seller_name || '')},</p>
-                     <p>Your payout of <strong>${formatCurrency(sub?.offer_amount || 0)}</strong> for your ${escapeHtml(sub?.brand || '')} card (#${escapeHtml(sub?.public_id || '')}) has been sent.</p>
-                     <p>Thanks for selling with Giftlio!</p>`
-                });
+                await notifyBoth('payout_marked_paid', submissionDbId);
                 showToast('success', 'Marked as paid.');
                 renderAdmin();
             } catch (error) {
@@ -6259,18 +6263,7 @@ async function rejectSubmission(submissionDbId) {
                 });
 
                 await logAdminAction('reject_submission', 'submission', submissionDbId, sub.brand, { reason, seller: sub.seller_name });
-                await notifyBoth({
-                    eventType: 'submission_rejected',
-                    relatedId: submissionDbId,
-                    adminSubject: `Submission Rejected: ${sub.brand} #${sub.public_id}`,
-                    adminBody: `<p><strong>Seller:</strong> ${escapeHtml(sub.seller_name)}</p><p><strong>Brand:</strong> ${escapeHtml(sub.brand)}</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p>`,
-                    sellerId: sub.seller_id,
-                    sellerSubject: `Your ${sub.brand} card submission wasn't approved`,
-                    sellerBody: `<p>Hi ${escapeHtml(sub.seller_name)},</p>
-                     <p>Your submission for a ${escapeHtml(sub.brand)} gift card (#${escapeHtml(sub.public_id)}) wasn't approved.</p>
-                     <p><strong>Reason:</strong> ${escapeHtml(reason)}</p>
-                     <p>If you have questions, reply to this email or contact support@giftlio.co.nz.</p>`
-                });
+                await notifyBoth('submission_rejected', submissionDbId);
 
                 showToast('info', `Submission rejected: ${reason}`);
                 renderAdmin();

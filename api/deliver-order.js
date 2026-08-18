@@ -1,4 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
+const Stripe = require('stripe');
+const { escapeHtml } = require('../notification-templates.js');
 
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -23,6 +25,12 @@ module.exports = async function handler(req, res) {
         console.error('RESEND_API_KEY is not configured.');
         return res.status(500).json({ error: 'Email service is not configured.' });
     }
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+        console.error('STRIPE_SECRET_KEY is not configured -- cannot verify payment before delivery.');
+        return res.status(500).json({ error: 'Payment verification is not configured.' });
+    }
+    const stripe = new Stripe(stripeSecretKey);
 
     // Step 1: confirm this request really carries a valid, current
     // Supabase session token -- not just a request shaped like one.
@@ -64,6 +72,39 @@ module.exports = async function handler(req, res) {
         if (orderError || !order) throw orderError || new Error('Order not found.');
         if (order.status === 'delivered') {
             return res.status(400).json({ error: 'This order has already been delivered.' });
+        }
+
+        // The DB row alone is never proof this order was actually paid for
+        // -- RLS on `orders` only prevents forgery going forward, it can't
+        // retroactively vouch for rows or protect against a future bug
+        // reintroducing one. The only real proof of payment is Stripe
+        // itself: a stripe_session_id that Stripe confirms is paid, for
+        // the exact amount this order claims. Every check below runs
+        // BEFORE anything is decrypted.
+        if (!order.stripe_session_id) {
+            console.error(`Delivery blocked: order ${order.id} (${order.public_id}) has no stripe_session_id.`);
+            return res.status(400).json({ error: `Order ${order.public_id} has no associated Stripe payment and cannot be delivered.` });
+        }
+
+        let stripeSession;
+        try {
+            stripeSession = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+        } catch (stripeError) {
+            console.error(`Failed to retrieve Stripe session ${order.stripe_session_id} for order ${order.id}:`, stripeError);
+            return res.status(400).json({ error: `Could not verify payment for order ${order.public_id} with Stripe. Refusing to deliver.` });
+        }
+
+        if (stripeSession.payment_status !== 'paid') {
+            console.error(`Delivery blocked: Stripe session ${order.stripe_session_id} for order ${order.id} has payment_status="${stripeSession.payment_status}", not "paid".`);
+            return res.status(400).json({ error: `Payment for order ${order.public_id} is not confirmed as paid. Refusing to deliver.` });
+        }
+
+        const expectedAmountCents = Math.round(Number(order.total) * 100);
+        if (stripeSession.amount_total !== expectedAmountCents) {
+            console.error(
+                `Delivery blocked: Stripe session ${order.stripe_session_id} amount_total=${stripeSession.amount_total} does not match order ${order.id} total=${order.total} (expected ${expectedAmountCents} cents).`
+            );
+            return res.status(400).json({ error: `Payment amount for order ${order.public_id} does not match its recorded total. Refusing to deliver.` });
         }
 
         const { data: listing, error: listingError } = await supabaseAdmin
@@ -138,13 +179,13 @@ module.exports = async function handler(req, res) {
 
         const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
-                <h2 style="color:#10142E;">Your ${order.brand} Gift Card</h2>
+                <h2 style="color:#10142E;">Your ${escapeHtml(order.brand)} Gift Card</h2>
                 <p>Thanks for your purchase from Giftlio! This card was reviewed and approved by our team before it was ever listed. Here are your details:</p>
                 <div style="background:#f8f9fa; border-radius:8px; padding:20px; margin: 20px 0;">
-                    <p><strong>Card Number:</strong> ${decryptedCardNumber}</p>
-                    ${decryptedPin ? `<p><strong>PIN:</strong> ${decryptedPin}</p>` : ''}
+                    <p><strong>Card Number:</strong> ${escapeHtml(decryptedCardNumber)}</p>
+                    ${decryptedPin ? `<p><strong>PIN:</strong> ${escapeHtml(decryptedPin)}</p>` : ''}
                     <p><strong>Value:</strong> $${Number(card.current_balance).toFixed(2)}</p>
-                    <p><strong>Expiry:</strong> ${card.expiry_date}</p>
+                    <p><strong>Expiry:</strong> ${escapeHtml(card.expiry_date)}</p>
                 </div>
                 <p style="text-align:center; margin: 24px 0;">
                     <a href="${balanceCheckUrl}" style="display:inline-block; background:#10142E; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Verify Your Balance</a>
@@ -153,7 +194,7 @@ module.exports = async function handler(req, res) {
                 <p style="text-align:center;">
                     <a href="mailto:support@giftlio.co.nz?subject=Issue%20with%20order%20${encodeURIComponent(order.public_id)}" style="color:#c0392b; font-size:13px;">Report an Issue with This Card</a>
                 </p>
-                <p style="color:#999; font-size:12px;">Order ID: ${order.public_id}</p>
+                <p style="color:#999; font-size:12px;">Order ID: ${escapeHtml(order.public_id)}</p>
             </div>
         `;
 

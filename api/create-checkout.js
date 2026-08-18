@@ -13,13 +13,14 @@ module.exports = async function handler(req, res) {
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!stripeSecretKey) {
         console.error('STRIPE_SECRET_KEY is not set in the Vercel project environment variables.');
         return res.status(500).json({ error: 'Payment processing is not configured yet.' });
     }
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
         console.error('Supabase env vars missing -- cannot verify checkout price server-side.');
         return res.status(500).json({ error: 'Payment processing is not configured yet.' });
     }
@@ -27,10 +28,26 @@ module.exports = async function handler(req, res) {
     const stripe = new Stripe(stripeSecretKey);
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    try {
-        const { listingId, brand, faceValue, salePrice, buyerId, buyerName, buyerEmail, buyerPhone } = req.body || {};
+    // The buyer's identity must come from a verified session, never from
+    // the request body -- otherwise anyone could check out AS someone else
+    // (their name/email would land on someone else's order). Reject
+    // anonymous calls entirely.
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+        return res.status(401).json({ error: 'Missing authentication token.' });
+    }
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
+    if (userError || !userData?.user) {
+        return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+    }
+    const buyerId = userData.user.id;
 
-        if (!listingId || !salePrice || !buyerId || !buyerEmail) {
+    try {
+        const { listingId, brand, faceValue, salePrice, buyerName, buyerEmail, buyerPhone } = req.body || {};
+
+        if (!listingId || !salePrice || !buyerEmail) {
             return res.status(400).json({ error: 'Missing required checkout details.' });
         }
 
@@ -50,7 +67,7 @@ module.exports = async function handler(req, res) {
         // actually promised, not a possibly-drifted current rate.
         const { data: listing, error: listingError } = await supabaseAdmin
             .from('listings')
-            .select('sale_price, status, brand, commission_rate, sale_mode')
+            .select('sale_price, status, suspended, seller_id, brand, commission_rate, sale_mode')
             .eq('id', listingId)
             .single();
 
@@ -58,6 +75,20 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'This listing could not be found.' });
         }
         if (listing.status !== 'active') {
+            return res.status(400).json({ error: 'This listing is no longer available.' });
+        }
+
+        // Kill switches, enforced server-side using the service-role
+        // client -- which bypasses RLS entirely, so the RLS-level
+        // suspension check on this table does NOT protect this endpoint by
+        // itself. "Suspend listing" and "suspend seller" must both
+        // actually block a sale here, not just hide the listing from the
+        // browse grid.
+        if (listing.suspended) {
+            return res.status(400).json({ error: 'This listing is no longer available.' });
+        }
+        const { data: sellerProfile } = await supabaseAdmin.from('profiles').select('suspended').eq('id', listing.seller_id).single();
+        if (sellerProfile?.suspended) {
             return res.status(400).json({ error: 'This listing is no longer available.' });
         }
 
