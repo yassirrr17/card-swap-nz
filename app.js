@@ -660,11 +660,16 @@ function showError(error, fallback = 'Something went wrong. Please try again.') 
     } else {
         // Only ever surface error.message when it's a message THIS app
         // wrote itself (a plain `throw new Error('...')`, which never
-        // carries a .code). A raw Supabase/Postgres error always has a
-        // .code (SQLSTATE or a PostgREST code) and its .message can
-        // contain internal details -- constraint names, column names,
-        // policy/trigger text -- that must never reach a user.
-        showMessage = error instanceof Error && !error.code;
+        // carries a .code) or a database trigger's hand-written
+        // `RAISE EXCEPTION 'text'` -- which, with no explicit SQLSTATE, is
+        // always reported as P0001 and is, by convention across every
+        // trigger in this codebase, deliberately user-facing validation
+        // text (e.g. "Offer must be between $63.75 and $106.25."), never a
+        // leaked internal detail. Any other code -- a constraint violation
+        // (23505, 23514, ...), an RLS/PostgREST error (42501, PGRST*, ...)
+        // -- is auto-generated and can contain constraint/column/policy
+        // names that must never reach a user.
+        showMessage = error instanceof Error && (!error.code || error.code === 'P0001');
     }
     showToast('error', (showMessage && error.message) || fallback);
 }
@@ -1586,7 +1591,7 @@ async function renderOfferPanel(listing) {
             panel.innerHTML = `<div class="offer-panel offer-status-box"><p>Your offer was accepted! You can buy this card at your agreed price of <strong>${formatCurrency(agreedPrice)}</strong>.</p><button class="btn btn-gold" style="width: 100%; margin-top: 8px;" onclick="startCheckout(${agreedPrice})">Buy Now - ${formatCurrency(agreedPrice)} NZD</button></div>`;
         }
     } catch (error) {
-        console.error('Unable to load offer status:', error);
+        showError(error, 'Unable to load offer status.');
     }
 }
 
@@ -1768,7 +1773,7 @@ async function viewListing(id, options = {}) {
                         <p style="font-size: 12px; color: var(--gray-500); margin-top: 8px; text-align: center;">Includes service fee</p>`
                         }
                     </div>
-                    ${!detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId ? '<div id="offerPanel"></div>' : ''}
+                    ${listing.status === 'active' && !detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId ? '<div id="offerPanel"></div>' : ''}
                     ${
                         similar.length > 0
                             ? `<div class="detail-section">
@@ -1792,7 +1797,7 @@ async function viewListing(id, options = {}) {
                 </div>
             `;
 
-            if (!detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
+            if (listing.status === 'active' && !detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
                 await renderOfferPanel(listing);
             }
 
