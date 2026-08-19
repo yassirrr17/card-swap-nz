@@ -1565,7 +1565,7 @@ async function renderOfferPanel(listing) {
         if (!existing || ['rejected', 'expired', 'withdrawn'].includes(existing.status)) {
             panel.innerHTML = `
                 <div class="offer-panel">
-                    <button class="btn btn-outline" style="width: 100%;" onclick="toggleOfferForm()">Make an Offer</button>
+                    <button class="btn btn-offer" style="width: 100%;" onclick="toggleOfferForm()">Make an Offer</button>
                     <div class="offer-form hidden" id="offerFormBox">
                         <label for="offerAmountInput">Your offer (between ${formatCurrency(minOffer)} and ${formatCurrency(maxOffer)})</label>
                         <input type="number" id="offerAmountInput" step="0.01" min="${minOffer.toFixed(2)}" max="${maxOffer.toFixed(2)}">

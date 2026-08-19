@@ -3120,6 +3120,23 @@ tr:hover td {
     border-radius: var(--radius-lg);
 }
 
+/* "Make an Offer" sits directly under the Buy Now button (.detail-action
+   .btn), which gets its 16px/18px sizing from that container. This button
+   lives outside .detail-action, so its padding/font-size are set here
+   directly to match Buy Now exactly -- border-radius and font-weight
+   already match via the shared .btn base class. */
+.btn-offer {
+    background: var(--navy);
+    color: var(--white);
+    padding: 16px;
+    font-size: 18px;
+}
+
+.btn-offer:hover {
+    background: var(--navy-light);
+    color: var(--white);
+}
+
 .offer-form {
     margin-top: 12px;
 }
