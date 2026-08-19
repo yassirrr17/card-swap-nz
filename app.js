@@ -1799,6 +1799,15 @@ async function viewListing(id, options = {}) {
 
             if (listing.status === 'active' && !detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
                 await renderOfferPanel(listing);
+            } else {
+                // TEMPORARY DIAGNOSTIC -- remove once the live "offer
+                // button missing" report is root-caused. Buyer is testing
+                // on mobile with no devtools access, so this surfaces the
+                // raw gate values directly on the page instead of console.
+                const debugBox = document.createElement('div');
+                debugBox.style.cssText = 'margin-top:12px;padding:10px;background:#fee;border:1px solid #c00;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#900;';
+                debugBox.textContent = `DEBUG offer-panel gate (temporary):\nlisting.status=${JSON.stringify(listing.status)}\nlisting.saleMode=${JSON.stringify(listing.saleMode)}\ndetailRetailerUnavailable=${detailRetailerUnavailable}\nAppState.currentUser?.id=${AppState.currentUser ? JSON.stringify(AppState.currentUser.id) : 'null'}\nlisting.sellerId=${JSON.stringify(listing.sellerId)}`;
+                document.getElementById('detailLayout')?.appendChild(debugBox);
             }
 
             router('listing', { historyMode });
