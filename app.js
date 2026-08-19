@@ -1799,6 +1799,12 @@ async function viewListing(id, options = {}) {
 
             if (listing.status === 'active' && !detailRetailerUnavailable && listing.saleMode === 'marketplace' && AppState.currentUser && AppState.currentUser.id !== listing.sellerId) {
                 await renderOfferPanel(listing);
+            } else {
+                // TEMPORARY DIAGNOSTIC round 2 -- remove once root-caused.
+                const debugBox = document.createElement('div');
+                debugBox.style.cssText = 'margin-top:12px;padding:10px;background:#fee;border:1px solid #c00;font-size:11px;font-family:monospace;white-space:pre-wrap;color:#900;';
+                debugBox.textContent = `DEBUG offer-panel gate (temporary):\nlisting.id=${JSON.stringify(listing.id)}\nlisting.brand=${JSON.stringify(listing.brand)}\nlisting.status=${JSON.stringify(listing.status)} (raw row.status via listingRowToView)\nlisting.saleMode=${JSON.stringify(listing.saleMode)}\ndetailRetailerUnavailable=${detailRetailerUnavailable}\nAppState.currentUser=${AppState.currentUser ? JSON.stringify({ id: AppState.currentUser.id, role: AppState.currentUser.role, suspended: AppState.currentUser.suspended }) : 'null'}\nlisting.sellerId=${JSON.stringify(listing.sellerId)}\nidsEqual=${AppState.currentUser ? AppState.currentUser.id === listing.sellerId : 'n/a'}`;
+                document.getElementById('detailLayout')?.appendChild(debugBox);
             }
 
             router('listing', { historyMode });
