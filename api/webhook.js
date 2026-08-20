@@ -139,6 +139,12 @@ module.exports = async function handler(req, res) {
                 total: salePrice,
                 status: 'pending_verification',
                 stripe_session_id: session.id,
+                // charge.refunded / charge.dispute.created events carry a
+                // payment intent (or a charge, which itself references one),
+                // never a Checkout Session id -- without this column there
+                // is no way for those handlers below to find the order they
+                // belong to.
+                stripe_payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
                 gross_commission: grossCommission,
                 stripe_fee: stripeFee,
                 stripe_fee_is_estimated: stripeFeeIsEstimated,
@@ -249,6 +255,105 @@ module.exports = async function handler(req, res) {
             // Returning 500 tells Stripe to retry this delivery later.
             return res.status(500).send('Failed to process order.');
         }
+    }
+
+    // A buyer's card issuer/Stripe refunded the charge. This is the ONLY
+    // place orders.status is ever set to 'refunded' -- whether the refund
+    // was triggered by an admin (api/refund-order.js calls
+    // stripe.refunds.create, but does not touch the DB itself -- this event
+    // is what actually finalizes the order's state) or done directly in the
+    // Stripe dashboard outside this app entirely.
+    if (event.type === 'charge.refunded') {
+        const charge = event.data.object;
+        const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+        if (paymentIntentId) {
+            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+            // Idempotent by construction: only ever moves a non-refunded
+            // order to refunded. A replayed event, or a second partial
+            // refund on the same charge, is a no-op here rather than a
+            // double-transition.
+            const { error: refundUpdateError } = await supabaseAdmin
+                .from('orders')
+                .update({ status: 'refunded', updated_at: new Date().toISOString() })
+                .eq('stripe_payment_intent_id', paymentIntentId)
+                .neq('status', 'refunded');
+            if (refundUpdateError) {
+                console.error(`Failed to mark order as refunded for payment_intent ${paymentIntentId}:`, refundUpdateError);
+                return res.status(500).send('Failed to process refund.');
+            }
+        }
+        return res.status(200).json({ received: true });
+    }
+
+    // A card-network chargeback -- the buyer's bank is disputing the charge
+    // directly with Stripe, separate from anything happening in this app.
+    // Auto-creates a disputes row (source='stripe_chargeback') via
+    // enforce_dispute_insert() -- NOT subject to that trigger's
+    // delivered/claim-window rules for a genuine buyer report, since a
+    // chargeback can land regardless of delivery status. An open dispute of
+    // either source blocks payout release (Task 3).
+    if (event.type === 'charge.dispute.created') {
+        const dispute = event.data.object;
+        const paymentIntentId = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : dispute.payment_intent?.id;
+        if (paymentIntentId) {
+            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+            const { data: order } = await supabaseAdmin
+                .from('orders')
+                .select('id, public_id, buyer_id, brand, total')
+                .eq('stripe_payment_intent_id', paymentIntentId)
+                .maybeSingle();
+
+            if (order) {
+                const { error: disputeInsertError } = await supabaseAdmin.from('disputes').insert({
+                    order_id: order.id,
+                    buyer_id: order.buyer_id,
+                    source: 'stripe_chargeback',
+                    buyer_message: `Stripe chargeback opened by the buyer's card issuer (dispute ${dispute.id}, reason: ${dispute.reason || 'unknown'}).`
+                });
+
+                // enforce_dispute_insert() raises an exception if an
+                // open/investigating dispute already exists for this order
+                // -- expected and harmless on a replayed event, not a
+                // failure to surface.
+                if (disputeInsertError && !/already an open dispute/i.test(disputeInsertError.message || '')) {
+                    console.error(`Failed to auto-create dispute for chargeback on order ${order.public_id}:`, disputeInsertError);
+                    return res.status(500).send('Failed to process chargeback.');
+                }
+
+                if (!disputeInsertError) {
+                    const resendApiKey = process.env.RESEND_API_KEY;
+                    const emailFrom = process.env.EMAIL_FROM || 'Giftlio <onboarding@resend.dev>';
+                    const adminInbox = process.env.ADMIN_NOTIFY_EMAIL || 'giftlio.co.nz@gmail.com';
+                    const bodyHtml = `<p><strong>A card-network chargeback was opened for order ${order.public_id}.</strong></p>
+                         <p><strong>Brand:</strong> ${order.brand}</p>
+                         <p><strong>Amount:</strong> $${Number(order.total).toFixed(2)}</p>
+                         <p>This order's payout is now blocked until the dispute is resolved. <a href="https://${req.headers.host}/admin">View in admin panel</a></p>`;
+                    try {
+                        const { data: queued } = await supabaseAdmin
+                            .from('email_queue')
+                            .insert({ to_email: adminInbox, subject: `Chargeback opened: order ${order.public_id}`, body_html: bodyHtml, event_type: 'chargeback_opened', related_id: order.id, status: 'pending', attempts: 1 })
+                            .select('id')
+                            .single();
+                        if (resendApiKey && queued) {
+                            const emailResponse = await fetch('https://api.resend.com/emails', {
+                                method: 'POST',
+                                headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ from: emailFrom, to: adminInbox, subject: `Chargeback opened: order ${order.public_id}`, html: bodyHtml })
+                            });
+                            await supabaseAdmin
+                                .from('email_queue')
+                                .update(emailResponse.ok ? { status: 'sent', sent_at: new Date().toISOString() } : { status: 'failed', last_error: await emailResponse.text() })
+                                .eq('id', queued.id);
+                        }
+                    } catch (notifyError) {
+                        console.error('Chargeback admin notification failed:', notifyError);
+                    }
+                }
+            } else {
+                console.warn(`charge.dispute.created for payment_intent ${paymentIntentId} but no matching order was found.`);
+            }
+        }
+        return res.status(200).json({ received: true });
     }
 
     // A Checkout Session that was never completed -- the buyer abandoned it,

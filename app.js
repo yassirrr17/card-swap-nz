@@ -2073,6 +2073,22 @@ async function viewOrderDetail(orderDbId) {
             const order = orderRowToView(data);
             const isDelivered = order.status === 'Delivered';
 
+            // Only relevant to show the buyer whether they've already
+            // reported an issue -- RLS already scopes this select to the
+            // buyer's own disputes (or an admin), so no extra filtering
+            // needed here.
+            if (isDelivered) {
+                const { data: existingDispute } = await supabaseClient
+                    .from('disputes')
+                    .select('status')
+                    .eq('order_id', orderDbId)
+                    .in('status', ['open', 'investigating', 'resolved', 'refunded', 'closed'])
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                order.disputeStatus = existingDispute?.status || null;
+            }
+
             document.getElementById('modalContent').innerHTML = `
                 <h2 style="color: var(--navy); margin-bottom: 20px;">Order Details</h2>
                 <div style="display: grid; gap: 12px; margin-bottom: 20px;">
@@ -2093,6 +2109,11 @@ async function viewOrderDetail(orderDbId) {
                         <p><strong>PIN:</strong> Securely stored in your account vault</p>
                         <p style="font-size: 12px; color: var(--gray-600); margin-top: 8px;">Full details sent to your email</p>
                     </div>
+                    ${
+                        order.disputeStatus
+                            ? `<p style="font-size: 13px; color: var(--gray-600); margin-bottom: 12px;">An issue has already been reported for this order (status: ${order.disputeStatus}). Our team is on it.</p>`
+                            : `<button class="btn btn-outline btn-sm" style="margin-bottom: 20px;" onclick="reportOrderIssue('${order.dbId}', '${order.id}')">Report an Issue with This Card</button>`
+                    }
                 `
                         : `
                     <div style="background: var(--yellow-light); padding: 16px; border-radius: var(--radius); margin-bottom: 20px;">
@@ -2109,6 +2130,40 @@ async function viewOrderDetail(orderDbId) {
     } catch (error) {
         showError(error, 'Unable to load order details.');
     }
+}
+
+/**
+ * Buyer-facing dispute creation -- previously there was no in-app way to do
+ * this at all; a drained/invalid card only ever reached a mailto: link.
+ * order_id is the only thing this client actually needs to send --
+ * buyer_id, seller_id, listing_id, status, source and the claim-window
+ * check are all enforced server-side by enforce_dispute_insert() (see
+ * migration 20260820181739_dispute_creation_and_refunds.sql), never trusted
+ * from here.
+ */
+function reportOrderIssue(orderDbId, publicOrderId) {
+    showConfirmModal({
+        title: 'Report an Issue',
+        message: `Tell us what's wrong with order ${publicOrderId} -- e.g. the balance was lower than listed, or the card didn't work. Our team will review it.`,
+        confirmLabel: 'Submit Report',
+        requireReason: true,
+        reasonLabel: 'What went wrong?',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient.from('disputes').insert({
+                        order_id: orderDbId,
+                        buyer_message: reason
+                    });
+                    if (error) throw error;
+                });
+                showToast('success', "Thanks -- we've received your report and will be in touch.");
+                closeModal();
+            } catch (error) {
+                showError(error, 'Unable to submit this report. Please email support@giftlio.co.nz directly.');
+            }
+        }
+    });
 }
 
 /**
@@ -4489,13 +4544,14 @@ async function renderDisputesTable() {
 
         table.innerHTML = `
             <table>
-                <thead><tr><th>ID</th><th>Message</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+                <thead><tr><th>ID</th><th>Source</th><th>Message</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
                 <tbody>
                     ${disputes
                         .map(
                             (d) => `
                         <tr>
                             <td data-label="ID">${escapeHtml(d.public_id)}</td>
+                            <td data-label="Source"><span class="badge ${d.source === 'stripe_chargeback' ? 'badge-red' : 'badge-gray'}">${d.source === 'stripe_chargeback' ? 'Stripe chargeback' : 'Buyer report'}</span></td>
                             <td data-label="Message">${escapeHtml((d.buyer_message || '').slice(0, 80))}${(d.buyer_message || '').length > 80 ? '…' : ''}</td>
                             <td data-label="Status"><span class="badge ${badgeMap[d.status] || 'badge-gray'}">${d.status}</span></td>
                             <td data-label="Date">${new Date(d.created_at).toLocaleDateString('en-NZ')}</td>
@@ -4503,7 +4559,8 @@ async function renderDisputesTable() {
                                 ${
                                     ['open', 'investigating'].includes(d.status)
                                         ? `<button class="btn btn-primary btn-sm" onclick="resolveDispute('${d.id}', 'resolved')">Resolve</button>
-                                           <button class="btn btn-outline btn-sm" onclick="resolveDispute('${d.id}', 'closed')">Close</button>`
+                                           <button class="btn btn-outline btn-sm" onclick="resolveDispute('${d.id}', 'closed')">Close</button>
+                                           ${d.order_id ? `<button class="btn btn-outline btn-sm" onclick="issueRefundForDispute('${d.id}', '${d.order_id}', '${escapeHtml(d.public_id)}')">Refund Buyer</button>` : ''}`
                                         : '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
                                 }
                             </td>
@@ -4517,6 +4574,39 @@ async function renderDisputesTable() {
     } catch (error) {
         showError(error, 'Unable to load disputes.');
     }
+}
+
+async function issueRefundForDispute(disputeId, orderId, publicOrderId) {
+    showConfirmModal({
+        title: 'Refund Buyer',
+        message: `Issue a Stripe refund for order ${publicOrderId}? This does not automatically resolve the dispute -- do that separately once you're satisfied it's settled.`,
+        confirmLabel: 'Issue Refund',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    const {
+                        data: { session },
+                        error: sessionError
+                    } = await supabaseClient.auth.getSession();
+                    if (sessionError) throw sessionError;
+                    if (!session) throw new Error('Your session has expired. Please log in again.');
+
+                    const response = await fetch('/api/refund-order', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                        body: JSON.stringify({ orderId })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Unable to issue this refund.');
+
+                    await logAdminAction('order_refund_requested', 'order', orderId, null, { disputeId, publicOrderId });
+                    showToast('success', data.message || 'Refund submitted.');
+                });
+            } catch (error) {
+                showError(error, 'Unable to issue this refund.');
+            }
+        }
+    });
 }
 
 async function resolveDispute(disputeId, newStatus) {
