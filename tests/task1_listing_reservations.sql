@@ -52,11 +52,18 @@ begin
     (v_buyer2, 'test-buyer2-' || v_buyer2 || '@example.invalid')
   on conflict do nothing;
 
+  -- handle_new_user() already auto-created a role='buyer' profile row for
+  -- each id above (an AFTER INSERT trigger on auth.users, same
+  -- transaction) -- ON CONFLICT DO NOTHING would silently discard the
+  -- roles below. Harmless for this particular script (none of these tests
+  -- are role-gated), but DO UPDATE is the correct pattern -- see
+  -- tests/task3_payout_holds.sql for a script where getting this wrong
+  -- causes silent, hard-to-diagnose false passes.
   insert into public.profiles (id, name, email, role) values
     (v_seller, 'Test Seller', (select email from auth.users where id = v_seller), 'seller'),
     (v_buyer1, 'Test Buyer One', (select email from auth.users where id = v_buyer1), 'buyer'),
     (v_buyer2, 'Test Buyer Two', (select email from auth.users where id = v_buyer2), 'buyer')
-  on conflict (id) do nothing;
+  on conflict (id) do update set role = excluded.role;
 
   insert into public.listings (
     public_id, seller_id, seller_name, brand, face_value, sale_price, discount,

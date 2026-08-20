@@ -3819,6 +3819,17 @@ async function renderPayoutsAwaitingTable() {
                             const unlocksAt = new Date(deliveredAt.getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
                             const isUnlocked = Date.now() >= unlocksAt.getTime();
                             const hoursLeft = Math.max(0, Math.ceil((unlocksAt.getTime() - Date.now()) / (60 * 60 * 1000)));
+                            const isFrozen = o.payout_status === 'frozen';
+                            let actionHtml;
+                            if (isFrozen) {
+                                actionHtml = `<span class="badge badge-red" title="${escapeHtml(o.payout_frozen_reason || '')}">Frozen</span> <button class="btn btn-outline btn-sm" onclick="unfreezePayout('${o.id}')">Unfreeze</button>`;
+                            } else {
+                                actionHtml = `${
+                                    isUnlocked
+                                        ? `<button class="btn btn-primary btn-sm" onclick="releaseMarketplacePayout('${o.id}')">Release Payout</button>`
+                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${MARKETPLACE_PAYOUT_HOLD_HOURS} hours after delivery">Unlocks in ${hoursLeft}h</button>`
+                                } <button class="btn btn-outline btn-sm" onclick="freezePayout('${o.id}')">Freeze</button>`;
+                            }
                             return `
                         <tr>
                             <td data-label="Order ID">${escapeHtml(o.public_id)}</td>
@@ -3826,13 +3837,7 @@ async function renderPayoutsAwaitingTable() {
                             <td data-label="Brand">${escapeHtml(o.brand)}</td>
                             <td data-label="Payout Amount">${formatCurrency(o.listings?.seller_payout_amount || 0)}</td>
                             <td data-label="Delivered">${deliveredAt.toLocaleDateString('en-NZ')}</td>
-                            <td data-label="Action">
-                                ${
-                                    isUnlocked
-                                        ? `<button class="btn btn-primary btn-sm" onclick="releaseMarketplacePayout('${o.id}')">Release Payout</button>`
-                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${MARKETPLACE_PAYOUT_HOLD_HOURS} hours after delivery">Unlocks in ${hoursLeft}h</button>`
-                                }
-                            </td>
+                            <td data-label="Action">${actionHtml}</td>
                         </tr>
                     `;
                         })
@@ -3962,6 +3967,68 @@ async function releaseMarketplacePayout(orderDbId) {
     } catch (error) {
         showError(error, 'Unable to load this order.');
     }
+}
+
+/**
+ * Freezing/unfreezing a payout -- an admin safety valve that always works
+ * regardless of the hold timer, enforced by enforce_payout_release_hold()
+ * (migration 20260820190000_db_enforced_payout_holds.sql), not just this
+ * client call. A frozen payout's Release button is replaced with Unfreeze
+ * until an admin explicitly clears it -- the DB trigger rejects any attempt
+ * to release a frozen payout even via a direct API call.
+ */
+function freezePayout(orderDbId) {
+    showConfirmModal({
+        title: 'Freeze Payout',
+        message: 'Freezing this payout blocks its release entirely, even after the holding period elapses, until an admin unfreezes it.',
+        confirmLabel: 'Freeze Payout',
+        danger: true,
+        requireReason: true,
+        reasonLabel: 'Reason for freezing',
+        onConfirm: async (reason) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient.from('orders').update({ payout_status: 'frozen', payout_frozen_reason: reason }).eq('id', orderDbId);
+                    if (error) throw error;
+                });
+                await logAdminAction('freeze_payout', 'order', orderDbId, null, { reason });
+                showToast('success', 'Payout frozen.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to freeze this payout.');
+            }
+        }
+    });
+}
+
+function unfreezePayout(orderDbId) {
+    showConfirmModal({
+        title: 'Unfreeze Payout',
+        message: 'This allows the payout to be released again once its holding period has elapsed (or immediately, if it already has).',
+        confirmLabel: 'Unfreeze',
+        onConfirm: async () => {
+            try {
+                await withLoading(async () => {
+                    // A payout that was already released before being frozen
+                    // (an edge case -- the normal Freeze button only appears
+                    // on payouts still awaiting release) should go back to
+                    // 'released', not 'pending', once unfrozen -- the money
+                    // already moved.
+                    const { data: existing } = await supabaseClient.from('orders').select('seller_paid').eq('id', orderDbId).single();
+                    const { error } = await supabaseClient
+                        .from('orders')
+                        .update({ payout_status: existing?.seller_paid ? 'released' : 'pending' })
+                        .eq('id', orderDbId);
+                    if (error) throw error;
+                });
+                await logAdminAction('unfreeze_payout', 'order', orderDbId, null, {});
+                showToast('success', 'Payout unfrozen.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to unfreeze this payout.');
+            }
+        }
+    });
 }
 
 /**

@@ -35,11 +35,14 @@ begin
     (v_buyer2, 'test-buyer2-' || v_buyer2 || '@example.invalid')
   on conflict do nothing;
 
+  -- See tests/task3_payout_holds.sql for why this must be DO UPDATE, not
+  -- DO NOTHING -- handle_new_user() already auto-created a role='buyer'
+  -- row for each id above in this same transaction.
   insert into public.profiles (id, name, email, role) values
     (v_seller, 'Test Seller', (select email from auth.users where id = v_seller), 'seller'),
     (v_buyer1, 'Test Buyer One', (select email from auth.users where id = v_buyer1), 'buyer'),
     (v_buyer2, 'Test Buyer Two', (select email from auth.users where id = v_buyer2), 'buyer')
-  on conflict (id) do nothing;
+  on conflict (id) do update set role = excluded.role;
 
   insert into public.listings (
     public_id, seller_id, seller_name, brand, face_value, sale_price, discount,
