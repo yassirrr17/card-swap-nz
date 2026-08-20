@@ -51,6 +51,16 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Missing required checkout details.' });
         }
 
+        // Best-effort, opportunistic sweep: there is no cron infrastructure in
+        // this project, so any reservation left over from an abandoned
+        // checkout gets released here, lazily, the next time anyone tries to
+        // buy anything. Must never block or fail this request.
+        try {
+            await supabaseAdmin.rpc('release_stale_reservations');
+        } catch (sweepError) {
+            console.warn('release_stale_reservations sweep failed (non-fatal):', sweepError);
+        }
+
         // CRITICAL: never trust a client-provided price. The browser
         // request is fully attacker-controlled -- without this check,
         // anyone could tamper with the request and buy any listing at any
@@ -131,48 +141,90 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'This price is no longer valid. Please refresh the listing and try again.' });
         }
 
+        // The actual race fix: an atomic active->reserved transition. Two
+        // concurrent buyers can both reach this line, but only one UPDATE
+        // can win the row -- the loser gets a clean 409 here and no Stripe
+        // session is ever created for them. This must be the LAST
+        // availability check before Stripe, immediately before session
+        // creation -- everything above (suspension, kill switch, price) is
+        // eligibility, not availability, and doesn't need to be atomic.
+        const { data: reserved, error: reserveError } = await supabaseAdmin.rpc('reserve_listing_for_checkout', {
+            p_listing_id: listingId,
+            p_buyer_id: buyerId
+        });
+        if (reserveError) {
+            console.error('reserve_listing_for_checkout failed:', reserveError);
+            return res.status(500).json({ error: 'Unable to start checkout. Please try again.' });
+        }
+        if (!reserved) {
+            return res.status(409).json({ error: 'Someone else is already buying this card. Please check back in a few minutes -- if their payment doesn’t go through, it will become available again.' });
+        }
+
+        const { data: pricingConfig } = await supabaseAdmin.from('pricing_config').select('checkout_reservation_ttl_minutes').eq('id', 1).single();
+        const ttlMinutes = pricingConfig?.checkout_reservation_ttl_minutes || 30;
+
         const origin = req.headers.origin || `https://${req.headers.host}`;
 
-        // No buyer-side fee -- the buyer pays exactly the verified sale
-        // price. A single line item, nothing added on top.
-        const session = await stripe.checkout.sessions.create({
-            mode: 'payment',
-            payment_method_types: ['card'],
-            customer_email: buyerEmail,
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'nzd',
-                        product_data: {
-                            name: `${brand} Gift Card - ${formatMoney(faceValue)} value`,
-                            description: 'Discounted gift card purchased via Giftlio'
+        let session;
+        try {
+            // No buyer-side fee -- the buyer pays exactly the verified sale
+            // price. A single line item, nothing added on top.
+            session = await stripe.checkout.sessions.create({
+                mode: 'payment',
+                payment_method_types: ['card'],
+                customer_email: buyerEmail,
+                // Matches the reservation TTL above -- when this Stripe
+                // session expires, the checkout.session.expired webhook
+                // handler releases this exact reservation back to 'active'.
+                // Stripe enforces a 30-minute floor on this value, which is
+                // why the TTL/config check constraint also enforces >= 30.
+                expires_at: Math.floor(Date.now() / 1000) + ttlMinutes * 60,
+                line_items: [
+                    {
+                        price_data: {
+                            currency: 'nzd',
+                            product_data: {
+                                name: `${brand} Gift Card - ${formatMoney(faceValue)} value`,
+                                description: 'Discounted gift card purchased via Giftlio'
+                            },
+                            unit_amount: Math.round(verifiedPrice * 100)
                         },
-                        unit_amount: Math.round(verifiedPrice * 100)
-                    },
-                    quantity: 1
-                }
-            ],
-            // This metadata is what the webhook (next step) will use to
-            // actually create the order row and mark the listing sold --
-            // it travels with the Stripe session, so it survives the
-            // redirect to Stripe and back. Uses the server-VERIFIED price,
-            // never the raw client-submitted one. commission_rate/sale_mode
-            // come from the listing row above, also never client-supplied.
-            metadata: {
-                listing_id: listingId,
-                buyer_id: buyerId,
-                buyer_name: buyerName || '',
-                buyer_email: buyerEmail,
-                buyer_phone: buyerPhone || '',
-                brand: brand || '',
-                face_value: String(faceValue ?? ''),
-                sale_price: String(verifiedPrice),
-                sale_mode: listing.sale_mode || '',
-                commission_rate: listing.commission_rate !== null && listing.commission_rate !== undefined ? String(listing.commission_rate) : ''
-            },
-            success_url: `${origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}#checkout`,
-            cancel_url: `${origin}/?checkout=cancelled#checkout`
-        });
+                        quantity: 1
+                    }
+                ],
+                // This metadata is what the webhook (next step) will use to
+                // actually create the order row and mark the listing sold --
+                // it travels with the Stripe session, so it survives the
+                // redirect to Stripe and back. Uses the server-VERIFIED price,
+                // never the raw client-submitted one. commission_rate/sale_mode
+                // come from the listing row above, also never client-supplied.
+                metadata: {
+                    listing_id: listingId,
+                    buyer_id: buyerId,
+                    buyer_name: buyerName || '',
+                    buyer_email: buyerEmail,
+                    buyer_phone: buyerPhone || '',
+                    brand: brand || '',
+                    face_value: String(faceValue ?? ''),
+                    sale_price: String(verifiedPrice),
+                    sale_mode: listing.sale_mode || '',
+                    commission_rate: listing.commission_rate !== null && listing.commission_rate !== undefined ? String(listing.commission_rate) : ''
+                },
+                success_url: `${origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}#checkout`,
+                cancel_url: `${origin}/?checkout=cancelled#checkout`
+            });
+        } catch (stripeError) {
+            // The listing is now reserved but there is no Stripe session for
+            // this buyer to ever complete or expire -- release it
+            // immediately rather than leaving it locked for the full TTL.
+            await supabaseAdmin
+                .from('listings')
+                .update({ status: 'active', reserved_at: null, reserved_by: null })
+                .eq('id', listingId)
+                .eq('status', 'reserved')
+                .eq('reserved_by', buyerId);
+            throw stripeError;
+        }
 
         return res.status(200).json({ url: session.url });
     } catch (error) {

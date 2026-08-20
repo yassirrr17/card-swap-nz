@@ -156,11 +156,20 @@ module.exports = async function handler(req, res) {
                     throw orderError;
                 }
             } else {
+                // The listing was moved active->reserved atomically at
+                // Checkout-session creation (api/create-checkout.js), so
+                // the only legal transition into 'sold' is FROM 'reserved'
+                // -- not 'active'. reserved_by is checked too: harmless in
+                // the normal case (only one buyer can ever hold the
+                // reservation), but it means this update can never
+                // accidentally claim a listing for the wrong buyer if
+                // reservation state was ever manipulated out of band.
                 const { data: updatedListing, error: listingError } = await supabaseAdmin
                     .from('listings')
-                    .update({ status: 'sold', sold_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+                    .update({ status: 'sold', sold_at: new Date().toISOString(), updated_at: new Date().toISOString(), reserved_at: null, reserved_by: null })
                     .eq('id', metadata.listing_id)
-                    .eq('status', 'active')
+                    .eq('status', 'reserved')
+                    .eq('reserved_by', metadata.buyer_id)
                     .select('seller_id, seller_name, sale_mode')
                     .single();
 
@@ -240,6 +249,35 @@ module.exports = async function handler(req, res) {
             // Returning 500 tells Stripe to retry this delivery later.
             return res.status(500).send('Failed to process order.');
         }
+    }
+
+    // A Checkout Session that was never completed -- the buyer abandoned it,
+    // or it simply hit its expires_at (set to match the listing reservation
+    // TTL in api/create-checkout.js). Release the reservation immediately
+    // rather than waiting for the next buyer's lazy sweep to notice it.
+    // Guarded on status='reserved' AND reserved_by=this buyer so a listing
+    // that has since legitimately sold (or been re-reserved after this
+    // session's own TTL window) is never touched by a late-arriving event.
+    if (event.type === 'checkout.session.expired') {
+        const session = event.data.object;
+        const metadata = session.metadata || {};
+        if (metadata.listing_id && metadata.buyer_id) {
+            const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+            const { error: releaseError } = await supabaseAdmin
+                .from('listings')
+                .update({ status: 'active', reserved_at: null, reserved_by: null, updated_at: new Date().toISOString() })
+                .eq('id', metadata.listing_id)
+                .eq('status', 'reserved')
+                .eq('reserved_by', metadata.buyer_id);
+            if (releaseError) {
+                console.error(`Failed to release expired reservation for listing ${metadata.listing_id}:`, releaseError);
+                // Non-fatal: the lazy sweep (release_stale_reservations, called
+                // from create-checkout.js) will still catch this once the TTL
+                // window passes. Still return 200 -- retrying this exact event
+                // won't help if the update itself is the problem.
+            }
+        }
+        return res.status(200).json({ received: true });
     }
 
     // Any other event type is intentionally ignored -- must still return
