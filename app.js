@@ -3767,6 +3767,7 @@ function renderPendingDeliveryTable(pendingDelivery) {
                         <td data-label="Price Paid">${formatCurrency(o.total)}</td>
                         <td data-label="Date">${new Date(o.date).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Action">
+                            <button class="btn btn-outline btn-sm" onclick="viewBalanceCheckHistory('${o.listingId}', '', '${escapeJsString(o.brand)}', ${o.faceValue})">Record Balance Check</button>
                             <button class="btn btn-primary btn-sm" onclick="deliverOrder('${o.dbId}')">Deliver</button>
                         </td>
                     </tr>

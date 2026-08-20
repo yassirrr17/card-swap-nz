@@ -107,6 +107,41 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: `Payment amount for order ${order.public_id} does not match its recorded total. Refusing to deliver.` });
         }
 
+        // A card validated once at submission could have been drained by
+        // the time it's actually about to be sent -- this must be checked
+        // BEFORE anything below decrypts or emails the card, not after.
+        // The database has a matching trigger
+        // (enforce_balance_check_before_delivery, migration
+        // 20260820201500) that blocks the orders.status update itself as a
+        // defense-in-depth backstop against a direct API call bypassing
+        // this file entirely -- but checking only there would be too late
+        // here: this function already decrypts and emails the card BEFORE
+        // it ever touches orders.status, so relying solely on that
+        // backstop would mean the buyer already has the card by the time
+        // the block fires.
+        const { data: pricingConfig } = await supabaseAdmin.from('pricing_config').select('balance_check_freshness_hours').eq('id', 1).single();
+        const freshnessHours = pricingConfig?.balance_check_freshness_hours;
+        if (!freshnessHours) {
+            console.error('Delivery blocked: balance_check_freshness_hours is not configured.');
+            return res.status(500).json({ error: 'Balance-check configuration is missing. Contact support before retrying.' });
+        }
+        const freshnessCutoff = new Date(Date.now() - freshnessHours * 60 * 60 * 1000).toISOString();
+        const { data: freshCheck, error: freshCheckError } = await supabaseAdmin
+            .from('balance_checks')
+            .select('id')
+            .eq('listing_id', order.listing_id)
+            .eq('check_type', 'pre_delivery')
+            .eq('status', 'completed')
+            .gte('created_at', freshnessCutoff)
+            .limit(1)
+            .maybeSingle();
+        if (freshCheckError) throw freshCheckError;
+        if (!freshCheck) {
+            return res.status(400).json({
+                error: `Order ${order.public_id} needs a fresh pre-delivery balance check (within the last ${freshnessHours} hours) before it can be delivered. Record one from this listing's balance check history first.`
+            });
+        }
+
         const { data: listing, error: listingError } = await supabaseAdmin
             .from('listings')
             .select('*')
