@@ -60,7 +60,10 @@ begin
     'The Warehouse', 100, 80, 20, 'sold', current_date + interval '90 days', 'marketplace'
   ) returning id into v_listing_id;
 
-  -- Delivered 1 hour ago -- well inside the 48h hold.
+  -- Delivered 1 hour ago -- well inside the payout hold (Task A: derived
+  -- as dispute_claim_window_hours + payout_hold_buffer_hours, 48h + 24h =
+  -- 72h by default -- no longer a separately-stored
+  -- marketplace_payout_hold_hours).
   insert into public.orders (
     public_id, listing_id, buyer_id, buyer_name, buyer_email, brand,
     face_value, sale_price, service_fee, total, status, delivered_at
@@ -81,14 +84,14 @@ begin
   if not v_threw then
     raise exception 'FAIL: release before the hold window elapsed should have been rejected';
   end if;
-  raise notice 'PASS: release rejected before the 48h hold elapses';
+  raise notice 'PASS: release rejected before the payout hold elapses';
 
   -- ------------------------------------------------------------------
   -- Test 2: a dispute opened while the order is still fresh (well within
   -- its own 48h claim window) keeps blocking release even once
-  -- delivered_at is later pushed back past the payout hold -- this
-  -- ordering matters: the claim window and the payout hold are both 48h
-  -- by default, so a dispute can only be opened BEFORE delivered_at is
+  -- delivered_at is later pushed back past the payout hold (72h by
+  -- default: 48h dispute window + 24h buffer, Task A) -- this ordering
+  -- matters: a dispute can only be opened BEFORE delivered_at is
   -- artificially aged for this test, exactly like a real buyer disputing
   -- promptly and the hold subsequently elapsing while it's still open.
   -- ------------------------------------------------------------------
@@ -97,7 +100,7 @@ begin
   insert into public.disputes (order_id, buyer_message) values (v_order_id, 'Balance was wrong.') returning id into v_dispute_id;
   reset role;
 
-  update public.orders set delivered_at = timezone('utc', now()) - interval '50 hours' where id = v_order_id;
+  update public.orders set delivered_at = timezone('utc', now()) - interval '100 hours' where id = v_order_id;
 
   v_threw := false;
   begin
@@ -197,14 +200,18 @@ begin
 
   -- ------------------------------------------------------------------
   -- Test 6: reversal signal via a NEW dispute on an already-paid order
-  -- (a second listing/order, since the first is now refunded)
+  -- (a second listing/order, since the first is now refunded). delivered_at
+  -- is inside the buyer's own 48h dispute claim window (a separate,
+  -- independent config from the payout hold, unaffected by Task A) --
+  -- otherwise enforce_dispute_insert() itself would reject the dispute
+  -- before this trigger ever gets a chance to run.
   -- ------------------------------------------------------------------
   insert into public.orders (
     public_id, listing_id, buyer_id, buyer_name, buyer_email, brand,
     face_value, sale_price, service_fee, total, status, delivered_at, seller_paid, payout_status, payout_released_at
   ) values (
     'TEST-ORD-' || substr(gen_random_uuid()::text, 1, 8), v_listing_id, v_buyer, 'Test Buyer',
-    'buyer@example.invalid', 'The Warehouse', 100, 80, 0, 80, 'delivered', timezone('utc', now()) - interval '60 hours',
+    'buyer@example.invalid', 'The Warehouse', 100, 80, 0, 80, 'delivered', timezone('utc', now()) - interval '10 hours',
     true, 'released', now()
   ) returning id into v_order_id;
 
@@ -236,7 +243,7 @@ begin
     face_value, sale_price, service_fee, total, status, delivered_at
   ) values (
     'TEST-ORD-' || substr(gen_random_uuid()::text, 1, 8), v_listing_id, v_buyer, 'Test Buyer',
-    'buyer@example.invalid', 'The Warehouse', 100, 80, 0, 80, 'delivered', timezone('utc', now()) - interval '60 hours'
+    'buyer@example.invalid', 'The Warehouse', 100, 80, 0, 80, 'delivered', timezone('utc', now()) - interval '100 hours'
   ) returning id into v_order_id;
 
   v_threw := false;

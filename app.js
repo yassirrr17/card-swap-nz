@@ -131,16 +131,29 @@ function subscribeToBrandDiscountChanges() {
 
 /**
  * Loads the live platform economics config (marketplace commission rate,
- * minimum card balance, minimum listing price) from pricing_config --
- * always fetched fresh, same convention as loadBrandDiscounts(), so an
- * admin's just-saved change takes effect on the very next read. Every
- * place that needs one of these three numbers reads AppState.pricingConfig
- * after calling this -- never a hardcoded fallback. A failed load leaves
- * AppState.pricingConfig null, which every caller treats as "blocked,
- * missing config" rather than silently proceeding with a guess.
+ * minimum card balance, minimum listing price, dispute/payout-hold
+ * windows) from pricing_config -- always fetched fresh, same convention as
+ * loadBrandDiscounts(), so an admin's just-saved change takes effect on
+ * the very next read. Every place that needs one of these numbers reads
+ * AppState.pricingConfig after calling this -- never a hardcoded fallback.
+ * A failed load leaves AppState.pricingConfig null, which every caller
+ * treats as "blocked, missing config" rather than silently proceeding with
+ * a guess.
+ *
+ * marketplacePayoutHoldHours is derived here (dispute_claim_window_hours +
+ * payout_hold_buffer_hours), mirroring what enforce_payout_release_hold()
+ * computes in the database -- there is no separately-stored
+ * marketplace_payout_hold_hours to read. This is purely a display value
+ * for the admin countdown UI; the actual gate is the DB trigger.
  */
 async function loadPricingConfig() {
-    const { data, error } = await supabaseClient.from('pricing_config').select('marketplace_commission_rate, min_card_balance, min_listing_price').eq('id', 1).maybeSingle();
+    const { data, error } = await supabaseClient
+        .from('pricing_config')
+        .select(
+            'marketplace_commission_rate, min_card_balance, min_listing_price, dispute_claim_window_hours, payout_hold_buffer_hours, instant_sell_payout_hold_hours, chargeback_review_threshold_amount'
+        )
+        .eq('id', 1)
+        .maybeSingle();
     if (error || !data) {
         console.error('Failed to load pricing config:', error);
         AppState.pricingConfig = null;
@@ -149,7 +162,12 @@ async function loadPricingConfig() {
     AppState.pricingConfig = {
         commissionRate: Number(data.marketplace_commission_rate),
         minCardBalance: Number(data.min_card_balance),
-        minListingPrice: Number(data.min_listing_price)
+        minListingPrice: Number(data.min_listing_price),
+        disputeClaimWindowHours: Number(data.dispute_claim_window_hours),
+        payoutHoldBufferHours: Number(data.payout_hold_buffer_hours),
+        marketplacePayoutHoldHours: Number(data.dispute_claim_window_hours) + Number(data.payout_hold_buffer_hours),
+        instantSellPayoutHoldHours: Number(data.instant_sell_payout_hold_hours),
+        chargebackReviewThresholdAmount: Number(data.chargeback_review_threshold_amount)
     };
     return AppState.pricingConfig;
 }
@@ -3301,10 +3319,12 @@ async function renderSellerEarnings() {
         await withLoading(async () => {
             const [{ data: subData, error: subError }, { data: listingData, error: listingError }] = await Promise.all([
                 supabaseClient.from('submissions').select('*').eq('seller_id', AppState.currentUser.id).is('deleted_at', null),
-                supabaseClient.from('listings').select('*').eq('seller_id', AppState.currentUser.id)
+                supabaseClient.from('listings').select('*').eq('seller_id', AppState.currentUser.id),
+                loadPricingConfig()
             ]);
             if (subError) throw subError;
             if (listingError) throw listingError;
+            if (!AppState.pricingConfig) throw new Error('Payout hold configuration is missing.');
 
             const submissions = (subData || []).map(submissionRowToView);
             const listings = listingData || [];
@@ -3342,7 +3362,7 @@ async function renderSellerEarnings() {
                     }
                     instantPending += s.offerAmount || 0;
                     if (s.approvedAt) {
-                        const unlocksAt = new Date(s.approvedAt).getTime() + INSTANT_SELL_PAYOUT_HOLD_HOURS * 60 * 60 * 1000;
+                        const unlocksAt = new Date(s.approvedAt).getTime() + AppState.pricingConfig.instantSellPayoutHoldHours * 60 * 60 * 1000;
                         if (now >= unlocksAt) instantAvailable += s.offerAmount || 0;
                     }
                 });
@@ -3371,7 +3391,7 @@ async function renderSellerEarnings() {
                     }
                     marketplacePending += payout;
                     if (order?.delivered_at) {
-                        const unlocksAt = new Date(order.delivered_at).getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000;
+                        const unlocksAt = new Date(order.delivered_at).getTime() + AppState.pricingConfig.marketplacePayoutHoldHours * 60 * 60 * 1000;
                         if (now >= unlocksAt) marketplaceAvailable += payout;
                     }
                 });
@@ -3779,13 +3799,14 @@ function renderPendingDeliveryTable(pendingDelivery) {
     `;
 }
 
-const MARKETPLACE_PAYOUT_HOLD_HOURS = 48;
-
 /**
  * Marketplace payouts awaiting release -- delivered orders where the
  * seller hasn't been paid yet. The Release Payout button is genuinely
- * disabled (not just hidden) until 48 hours have passed since delivered_at,
- * with a live countdown so admin knows exactly when it'll unlock.
+ * disabled (not just hidden) until dispute_claim_window_hours +
+ * payout_hold_buffer_hours have passed since delivered_at, with a live
+ * countdown so admin knows exactly when it'll unlock. The DB trigger is
+ * the real gate -- this countdown is read from the same config so it
+ * never drifts from what the trigger will actually enforce.
  */
 async function renderPayoutsAwaitingTable() {
     const table = document.getElementById('payoutsAwaitingTable');
@@ -3793,13 +3814,19 @@ async function renderPayoutsAwaitingTable() {
     table.innerHTML = renderSkeletonTableRows(4, 6);
 
     try {
-        const { data: orders, error } = await supabaseClient
-            .from('orders')
-            .select('*, listings(sale_mode, seller_id, seller_name, seller_payout_amount)')
-            .eq('status', 'delivered')
-            .eq('seller_paid', false)
-            .not('delivered_at', 'is', null);
+        const [{ data: orders, error }] = await Promise.all([
+            supabaseClient
+                .from('orders')
+                .select('*, listings(sale_mode, seller_id, seller_name, seller_payout_amount)')
+                .eq('status', 'delivered')
+                .eq('seller_paid', false)
+                .not('delivered_at', 'is', null),
+            loadPricingConfig()
+        ]);
         if (error) throw error;
+        if (!AppState.pricingConfig) throw new Error('Payout hold configuration is missing.');
+        const holdHours = AppState.pricingConfig.marketplacePayoutHoldHours;
+        const chargebackThreshold = AppState.pricingConfig.chargebackReviewThresholdAmount;
 
         const marketplaceOrders = (orders || []).filter((o) => o.listings?.sale_mode === 'marketplace');
 
@@ -3812,12 +3839,12 @@ async function renderPayoutsAwaitingTable() {
 
         table.innerHTML = `
             <table>
-                <thead><tr><th>Order ID</th><th>Seller</th><th>Brand</th><th>Payout Amount</th><th>Delivered</th><th>Action</th></tr></thead>
+                <thead><tr><th>Order ID</th><th>Seller</th><th>Brand</th><th>Payout Amount</th><th>Delivered</th><th>Chargeback Risk</th><th>Action</th></tr></thead>
                 <tbody>
                     ${marketplaceOrders
                         .map((o) => {
                             const deliveredAt = new Date(o.delivered_at);
-                            const unlocksAt = new Date(deliveredAt.getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+                            const unlocksAt = new Date(deliveredAt.getTime() + holdHours * 60 * 60 * 1000);
                             const isUnlocked = Date.now() >= unlocksAt.getTime();
                             const hoursLeft = Math.max(0, Math.ceil((unlocksAt.getTime() - Date.now()) / (60 * 60 * 1000)));
                             const isFrozen = o.payout_status === 'frozen';
@@ -3828,9 +3855,26 @@ async function renderPayoutsAwaitingTable() {
                                 actionHtml = `${
                                     isUnlocked
                                         ? `<button class="btn btn-primary btn-sm" onclick="releaseMarketplacePayout('${o.id}')">Release Payout</button>`
-                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${MARKETPLACE_PAYOUT_HOLD_HOURS} hours after delivery">Unlocks in ${hoursLeft}h</button>`
+                                        : `<button class="btn btn-outline btn-sm" disabled title="Unlocks ${holdHours} hours after delivery">Unlocks in ${hoursLeft}h</button>`
                                 } <button class="btn btn-outline btn-sm" onclick="freezePayout('${o.id}')">Freeze</button>`;
                             }
+
+                            // Visibility/manual-review aid only (Task C) --
+                            // not an automated gate. High-value orders sit
+                            // above the standard chargeback risk threshold
+                            // because a Stripe chargeback can land months
+                            // after payout, well past the payout hold; this
+                            // just makes sure a human looks twice.
+                            const ageDays = Math.floor((Date.now() - deliveredAt.getTime()) / (24 * 60 * 60 * 1000));
+                            const isHighValue = Number(o.total || 0) >= chargebackThreshold;
+                            let riskHtml = '--';
+                            if (isHighValue) {
+                                riskHtml = o.chargeback_risk_reviewed
+                                    ? `<span class="badge badge-green" title="${escapeHtml(o.chargeback_risk_notes || '')}">Reviewed</span>`
+                                    : `<span class="badge badge-yellow" title="Order total ${formatCurrency(o.total)} is above the ${formatCurrency(chargebackThreshold)} chargeback review threshold. Delivered ${ageDays} day(s) ago -- a Stripe chargeback can still land for months after this payout releases.">High value</span>
+                                       <button class="btn btn-outline btn-sm" onclick="reviewChargebackRisk('${o.id}')">Review</button>`;
+                            }
+
                             return `
                         <tr>
                             <td data-label="Order ID">${escapeHtml(o.public_id)}</td>
@@ -3838,6 +3882,7 @@ async function renderPayoutsAwaitingTable() {
                             <td data-label="Brand">${escapeHtml(o.brand)}</td>
                             <td data-label="Payout Amount">${formatCurrency(o.listings?.seller_payout_amount || 0)}</td>
                             <td data-label="Delivered">${deliveredAt.toLocaleDateString('en-NZ')}</td>
+                            <td data-label="Chargeback Risk">${riskHtml}</td>
                             <td data-label="Action">${actionHtml}</td>
                         </tr>
                     `;
@@ -3919,24 +3964,38 @@ async function renderInstantPayoutsAwaitingTable() {
 
 async function releaseMarketplacePayout(orderDbId) {
     try {
-        const { data: order } = await supabaseClient
-            .from('orders')
-            .select('*, listings(seller_id, seller_name, seller_payout_amount, brand)')
-            .eq('id', orderDbId)
-            .single();
+        const [{ data: order }] = await Promise.all([
+            supabaseClient
+                .from('orders')
+                .select('*, listings(seller_id, seller_name, seller_payout_amount, brand)')
+                .eq('id', orderDbId)
+                .single(),
+            loadPricingConfig()
+        ]);
 
         if (!order) throw new Error('Order not found.');
+        if (!AppState.pricingConfig) throw new Error('Payout hold configuration is missing.');
 
+        const holdHours = AppState.pricingConfig.marketplacePayoutHoldHours;
         const deliveredAt = new Date(order.delivered_at);
-        const unlocksAt = new Date(deliveredAt.getTime() + MARKETPLACE_PAYOUT_HOLD_HOURS * 60 * 60 * 1000);
+        const unlocksAt = new Date(deliveredAt.getTime() + holdHours * 60 * 60 * 1000);
         if (Date.now() < unlocksAt.getTime()) {
-            showToast('warning', 'This payout is still within its 48-hour holding period.');
+            showToast('warning', `This payout is still within its ${holdHours}-hour holding period.`);
             return;
         }
 
+        // Task C: a last reminder at the point of release for a high-value,
+        // not-yet-reviewed order -- still not a block, just a nudge, since
+        // the queue's own "High value" badge + Review action is the real
+        // checkpoint and an admin may release straight from here.
+        const isUnreviewedHighValue = Number(order.total || 0) >= AppState.pricingConfig.chargebackReviewThresholdAmount && !order.chargeback_risk_reviewed;
+        const chargebackNote = isUnreviewedHighValue
+            ? ` This order (${formatCurrency(order.total)}) is above the chargeback review threshold and hasn't been reviewed yet -- a card-network chargeback can still land for months after this payout releases.`
+            : '';
+
         showConfirmModal({
             title: 'Release Payout',
-            message: `Confirm ${formatCurrency(order.listings?.seller_payout_amount || 0)} has been paid to ${order.listings?.seller_name || 'this seller'}?`,
+            message: `Confirm ${formatCurrency(order.listings?.seller_payout_amount || 0)} has been paid to ${order.listings?.seller_name || 'this seller'}?${chargebackNote}`,
             confirmLabel: 'Confirm Released',
             onConfirm: async () => {
                 try {
@@ -3997,6 +4056,40 @@ function freezePayout(orderDbId) {
                 renderAdmin();
             } catch (error) {
                 showError(error, 'Unable to freeze this payout.');
+            }
+        }
+    });
+}
+
+/**
+ * Manual chargeback-risk checkpoint (Task C) -- purely a visibility aid,
+ * not an automated gate. Marking a high-value order "reviewed" does not
+ * unlock or change anything about its release; it only records that a
+ * human looked at the chargeback exposure before the Release Payout
+ * button was clicked. There is no automated clawback to pair this with --
+ * Giftlio holds no seller bank/payment details to claw anything back from.
+ */
+function reviewChargebackRisk(orderDbId) {
+    showConfirmModal({
+        title: 'Chargeback Risk Review',
+        message: 'This order is above the chargeback review threshold. A card-network chargeback can still land for months after this payout releases, and there is currently no automated way to claw it back from the seller. Note why you consider this safe to release.',
+        confirmLabel: 'Mark Reviewed',
+        requireReason: true,
+        reasonLabel: 'Review notes',
+        onConfirm: async (notes) => {
+            try {
+                await withLoading(async () => {
+                    const { error } = await supabaseClient
+                        .from('orders')
+                        .update({ chargeback_risk_reviewed: true, chargeback_risk_notes: notes })
+                        .eq('id', orderDbId);
+                    if (error) throw error;
+                });
+                await logAdminAction('review_chargeback_risk', 'order', orderDbId, null, { notes });
+                showToast('success', 'Chargeback risk reviewed.');
+                renderAdmin();
+            } catch (error) {
+                showError(error, 'Unable to save this review.');
             }
         }
     });
@@ -5745,6 +5838,24 @@ async function renderPricingConfigSettings() {
                 <input type="number" id="pcMinListingInput" min="0" step="0.01" value="${config.minListingPrice.toFixed(2)}">
                 <span class="error-msg" id="pcMinListingError"></span>
             </div>
+            <div class="form-group">
+                <label for="pcPayoutBufferInput">Payout Hold Buffer (hours)</label>
+                <input type="number" id="pcPayoutBufferInput" min="1" step="1" value="${config.payoutHoldBufferHours}">
+                <span class="error-msg" id="pcPayoutBufferError"></span>
+                <p class="field-hint-text">Added on top of the dispute claim window below to get the effective Marketplace payout hold (currently ${config.marketplacePayoutHoldHours}h). There is no separate "payout hold hours" setting -- it's always claim window + this buffer.</p>
+            </div>
+            <div class="form-group">
+                <label for="pcDisputeWindowInput">Dispute Claim Window (hours)</label>
+                <input type="number" id="pcDisputeWindowInput" min="1" step="1" value="${config.disputeClaimWindowHours}">
+                <span class="error-msg" id="pcDisputeWindowError"></span>
+                <p class="field-hint-text">How long after delivery a buyer can open a dispute. Keep in sync with the "verify within X hours" wording in the delivery email.</p>
+            </div>
+            <div class="form-group">
+                <label for="pcChargebackThresholdInput">Chargeback Review Threshold ($)</label>
+                <input type="number" id="pcChargebackThresholdInput" min="0.01" step="0.01" value="${config.chargebackReviewThresholdAmount.toFixed(2)}">
+                <span class="error-msg" id="pcChargebackThresholdError"></span>
+                <p class="field-hint-text">Orders at or above this total get flagged in the payout queue for a manual chargeback-risk review before release.</p>
+            </div>
         </div>
         <button class="btn btn-primary btn-sm" onclick="savePricingConfig()">Save Changes</button>
     `;
@@ -5754,13 +5865,22 @@ async function savePricingConfig() {
     const commissionInput = document.getElementById('pcCommissionInput');
     const minBalanceInput = document.getElementById('pcMinBalanceInput');
     const minListingInput = document.getElementById('pcMinListingInput');
+    const payoutBufferInput = document.getElementById('pcPayoutBufferInput');
+    const disputeWindowInput = document.getElementById('pcDisputeWindowInput');
+    const chargebackThresholdInput = document.getElementById('pcChargebackThresholdInput');
     document.getElementById('pcCommissionError').textContent = '';
     document.getElementById('pcMinBalanceError').textContent = '';
     document.getElementById('pcMinListingError').textContent = '';
+    document.getElementById('pcPayoutBufferError').textContent = '';
+    document.getElementById('pcDisputeWindowError').textContent = '';
+    document.getElementById('pcChargebackThresholdError').textContent = '';
 
     const commissionPct = Number(commissionInput.value);
     const minBalance = Number(minBalanceInput.value);
     const minListing = Number(minListingInput.value);
+    const payoutBufferHours = Number(payoutBufferInput.value);
+    const disputeWindowHours = Number(disputeWindowInput.value);
+    const chargebackThreshold = Number(chargebackThresholdInput.value);
 
     let hasError = false;
     if (!Number.isFinite(commissionPct) || commissionPct < 0 || commissionPct > 100) {
@@ -5775,14 +5895,27 @@ async function savePricingConfig() {
         document.getElementById('pcMinListingError').textContent = 'Enter a minimum listing price of 0 or more.';
         hasError = true;
     }
+    if (!Number.isInteger(payoutBufferHours) || payoutBufferHours < 1) {
+        document.getElementById('pcPayoutBufferError').textContent = 'Enter a whole number of hours, 1 or more.';
+        hasError = true;
+    }
+    if (!Number.isInteger(disputeWindowHours) || disputeWindowHours < 1) {
+        document.getElementById('pcDisputeWindowError').textContent = 'Enter a whole number of hours, 1 or more.';
+        hasError = true;
+    }
+    if (!Number.isFinite(chargebackThreshold) || chargebackThreshold <= 0) {
+        document.getElementById('pcChargebackThresholdError').textContent = 'Enter a threshold amount greater than 0.';
+        hasError = true;
+    }
     if (hasError) return;
 
     const commissionRate = Math.round((commissionPct / 100) * 10000) / 10000;
     const previous = AppState.pricingConfig;
+    const newHoldHours = disputeWindowHours + payoutBufferHours;
 
     showConfirmModal({
         title: 'Save Pricing Changes',
-        message: `Change commission to ${commissionPct}%, minimum card balance to $${minBalance.toFixed(2)}, and minimum listing price to $${minListing.toFixed(2)}? This applies to every submission and sale from now on.`,
+        message: `Change commission to ${commissionPct}%, minimum card balance to $${minBalance.toFixed(2)}, minimum listing price to $${minListing.toFixed(2)}, dispute claim window to ${disputeWindowHours}h, payout hold buffer to ${payoutBufferHours}h (effective Marketplace payout hold: ${newHoldHours}h), and chargeback review threshold to $${chargebackThreshold.toFixed(2)}? This applies to every submission and sale from now on.`,
         confirmLabel: 'Save Changes',
         onConfirm: async () => {
             try {
@@ -5793,6 +5926,9 @@ async function savePricingConfig() {
                             marketplace_commission_rate: commissionRate,
                             min_card_balance: minBalance,
                             min_listing_price: minListing,
+                            payout_hold_buffer_hours: payoutBufferHours,
+                            dispute_claim_window_hours: disputeWindowHours,
+                            chargeback_review_threshold_amount: chargebackThreshold,
                             updated_at: new Date().toISOString(),
                             updated_by: AppState.currentUser.id
                         })
@@ -5802,9 +5938,23 @@ async function savePricingConfig() {
 
                 await logAdminAction('update_pricing_config', 'pricing_config', null, null, {
                     previous: previous
-                        ? { commissionRate: previous.commissionRate, minCardBalance: previous.minCardBalance, minListingPrice: previous.minListingPrice }
+                        ? {
+                              commissionRate: previous.commissionRate,
+                              minCardBalance: previous.minCardBalance,
+                              minListingPrice: previous.minListingPrice,
+                              payoutHoldBufferHours: previous.payoutHoldBufferHours,
+                              disputeClaimWindowHours: previous.disputeClaimWindowHours,
+                              chargebackReviewThresholdAmount: previous.chargebackReviewThresholdAmount
+                          }
                         : null,
-                    new: { commissionRate, minCardBalance: minBalance, minListingPrice: minListing }
+                    new: {
+                        commissionRate,
+                        minCardBalance: minBalance,
+                        minListingPrice: minListing,
+                        payoutHoldBufferHours: payoutBufferHours,
+                        disputeClaimWindowHours: disputeWindowHours,
+                        chargebackReviewThresholdAmount: chargebackThreshold
+                    }
                 });
 
                 showToast('success', 'Pricing configuration updated.');
