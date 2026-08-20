@@ -4535,21 +4535,40 @@ async function renderVerificationQueue() {
             .is('deleted_at', null);
         if (subsError) throw subsError;
 
+        // Rolling 12-month cumulative total (buying + selling, all
+        // activity), read-only -- a risk SIGNAL for the admin reviewing
+        // this queue, not something that blocks or auto-decides anything.
+        // See customer_transaction_totals_365d() (migration
+        // 20260820200000) for exactly what counts toward it, and why that
+        // is deliberately kept separate from any legal AML/CFT threshold
+        // decision. Fetched once (not per-seller) -- p_profile_id=null
+        // returns every customer with nonzero activity in the window.
+        let totalsById = {};
+        try {
+            const { data: totals, error: totalsError } = await supabaseClient.rpc('customer_transaction_totals_365d');
+            if (totalsError) throw totalsError;
+            totalsById = Object.fromEntries((totals || []).map((t) => [t.profile_id, t.combined_total_365d]));
+        } catch (totalsFetchError) {
+            console.warn('Unable to load 12-month transaction totals for the verification queue:', totalsFetchError);
+        }
+
         table.innerHTML = `
             <table>
-                <thead><tr><th>Seller</th><th>Account Age</th><th>Total Submissions</th><th>Previous Rejections</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Seller</th><th>Account Age</th><th>Total Submissions</th><th>Previous Rejections</th><th>12-Month Total</th><th>Actions</th></tr></thead>
                 <tbody>
                     ${flaggedSellers
                         .map((s) => {
                             const theirSubs = (allSubs || []).filter((sub) => sub.seller_id === s.id);
                             const rejections = theirSubs.filter((sub) => sub.status === 'rejected').length;
                             const ageInDays = Math.floor((Date.now() - new Date(s.created_at).getTime()) / (1000 * 60 * 60 * 24));
+                            const twelveMonthTotal = totalsById[s.id];
                             return `
                         <tr>
                             <td data-label="Seller">${escapeHtml(s.name)}<br><span style="color: var(--gray-500); font-size: 12px;">${escapeHtml(s.email)}</span></td>
                             <td data-label="Account Age">${ageInDays === 0 ? 'Today' : `${ageInDays} day${ageInDays === 1 ? '' : 's'}`}</td>
                             <td data-label="Total Submissions">${theirSubs.length}</td>
                             <td data-label="Previous Rejections">${rejections > 0 ? `<span class="badge badge-red">${rejections}</span>` : '0'}</td>
+                            <td data-label="12-Month Total">${twelveMonthTotal !== undefined ? formatCurrency(twelveMonthTotal) : '—'}</td>
                             <td data-label="Actions">
                                 <button class="btn btn-primary btn-sm" onclick="setSellerVerificationStatus('${s.id}', 'verified', '${escapeJsString(s.name)}')">Verify</button>
                                 <button class="btn btn-outline btn-sm" onclick="viewSellerHistory('${s.id}', '${escapeJsString(s.name)}')">Full History</button>
