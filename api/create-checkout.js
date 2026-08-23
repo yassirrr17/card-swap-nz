@@ -77,7 +77,7 @@ module.exports = async function handler(req, res) {
         // actually promised, not a possibly-drifted current rate.
         const { data: listing, error: listingError } = await supabaseAdmin
             .from('listings')
-            .select('sale_price, status, suspended, seller_id, brand, commission_rate, sale_mode')
+            .select('sale_price, status, suspended, seller_id, brand, commission_rate, sale_mode, seller_payout_amount')
             .eq('id', listingId)
             .single();
 
@@ -139,6 +139,68 @@ module.exports = async function handler(req, res) {
         if (verifiedPrice === null) {
             console.warn(`Checkout price mismatch for listing ${listingId}: submitted ${submittedPrice}, listing price ${listing.sale_price}, buyer ${buyerId}`);
             return res.status(400).json({ error: 'This price is no longer valid. Please refresh the listing and try again.' });
+        }
+
+        // $10k rolling transaction cap: a read-only pre-check
+        // (evaluate_transaction_cap never writes to the ledger or raises on
+        // cap logic) -- if it comes back not-allowed, log_transaction_cap_outcome
+        // is called as its OWN separate statement to durably record the
+        // rejection, since a single function that both logs and raises
+        // would have that log undone by Postgres rolling back the whole
+        // transaction along with the raise (this is exactly what the first
+        // version of this feature got wrong -- see
+        // supabase/migrations/20260823181000_fix_transaction_cap_log_rollback.sql).
+        // An allowed result here logs nothing -- the orders-insert trigger
+        // in the webhook is the only place an 'allowed' row is ever written,
+        // so one real sale can never be double-counted.
+        //
+        // Checked for the buyer always; for the seller only when this is a
+        // genuine Marketplace listing -- an Instant-Sell-sourced listing
+        // being resold here has Giftlio as its effective seller for cap
+        // purposes, not the original submitter, who was already checked at
+        // their own approval time. A rejection on EITHER side returns the
+        // same generic message to the buyer -- telling them "the seller is
+        // over their limit" would leak another user's financial state.
+        async function evaluateAndLogCapRejection(profileId, transactionType, amount) {
+            const { data: evalRows, error: evalError } = await supabaseAdmin.rpc('evaluate_transaction_cap', {
+                p_profile_id: profileId,
+                p_transaction_type: transactionType,
+                p_amount: amount
+            });
+            if (evalError) throw evalError;
+            const evalResult = Array.isArray(evalRows) ? evalRows[0] : evalRows;
+            if (!evalResult.allowed) {
+                const { error: logError } = await supabaseAdmin.rpc('log_transaction_cap_outcome', {
+                    p_profile_id: profileId,
+                    p_transaction_type: transactionType,
+                    p_amount: amount,
+                    p_outcome: 'rejected',
+                    p_prior_total: evalResult.prior_total,
+                    p_resulting_total: evalResult.resulting_total,
+                    p_window_days: evalResult.window_days,
+                    p_cap_amount: evalResult.cap_amount,
+                    p_source: 'checkout_precheck',
+                    p_rejection_reason: `Would reach/exceed the $${evalResult.cap_amount} rolling ${evalResult.window_days}-day cap (existing total $${evalResult.prior_total} + this $${amount})`
+                });
+                if (logError) console.error('Failed to log transaction cap rejection:', logError);
+                return false;
+            }
+            return true;
+        }
+
+        try {
+            const buyerAllowed = await evaluateAndLogCapRejection(buyerId, 'marketplace_buy', verifiedPrice);
+            let sellerAllowed = true;
+            if (listing.sale_mode === 'marketplace' && listing.seller_payout_amount !== null && listing.seller_payout_amount !== undefined) {
+                sellerAllowed = await evaluateAndLogCapRejection(listing.seller_id, 'marketplace_sell', listing.seller_payout_amount);
+            }
+            if (!buyerAllowed || !sellerAllowed) {
+                console.warn(`Transaction cap pre-check blocked checkout for listing ${listingId}, buyer ${buyerId} (buyerAllowed=${buyerAllowed}, sellerAllowed=${sellerAllowed}).`);
+                return res.status(400).json({ error: 'This purchase can\'t be completed right now. Please contact support.' });
+            }
+        } catch (capError) {
+            console.error(`Transaction cap pre-check failed for listing ${listingId}, buyer ${buyerId}:`, capError.message);
+            return res.status(500).json({ error: 'Unable to start checkout. Please try again.' });
         }
 
         // The actual race fix: an atomic active->reserved transition. Two
