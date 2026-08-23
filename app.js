@@ -3984,6 +3984,22 @@ async function releaseMarketplacePayout(orderDbId) {
             return;
         }
 
+        // Payout verification gate: unverified sellers can list and sell,
+        // but the DB (enforce_payout_release_hold()) blocks release until
+        // profiles.verification_status = 'verified' -- this lookup is only
+        // a UX nicety deciding whether to prompt for an override reason up
+        // front. The real gate lives in the trigger and can't be skipped
+        // from here even if this lookup were wrong or stale.
+        let needsVerificationOverride = false;
+        if (order.listings?.seller_id) {
+            const { data: sellerProfile } = await supabaseClient
+                .from('profiles')
+                .select('verification_status')
+                .eq('id', order.listings.seller_id)
+                .single();
+            needsVerificationOverride = sellerProfile?.verification_status !== 'verified';
+        }
+
         // Task C: a last reminder at the point of release for a high-value,
         // not-yet-reviewed order -- still not a block, just a nudge, since
         // the queue's own "High value" badge + Review action is the real
@@ -3993,16 +4009,24 @@ async function releaseMarketplacePayout(orderDbId) {
             ? ` This order (${formatCurrency(order.total)}) is above the chargeback review threshold and hasn't been reviewed yet -- a card-network chargeback can still land for months after this payout releases.`
             : '';
 
+        const verificationNote = needsVerificationOverride
+            ? ' This seller is not verified -- releasing requires an override reason, which is logged.'
+            : '';
+
         showConfirmModal({
             title: 'Release Payout',
-            message: `Confirm ${formatCurrency(order.listings?.seller_payout_amount || 0)} has been paid to ${order.listings?.seller_name || 'this seller'}?${chargebackNote}`,
-            confirmLabel: 'Confirm Released',
-            onConfirm: async () => {
+            message: `Confirm ${formatCurrency(order.listings?.seller_payout_amount || 0)} has been paid to ${order.listings?.seller_name || 'this seller'}?${chargebackNote}${verificationNote}`,
+            confirmLabel: needsVerificationOverride ? 'Override & Release' : 'Confirm Released',
+            requireReason: needsVerificationOverride,
+            reasonLabel: 'Reason for releasing an unverified seller’s payout',
+            onConfirm: async (reason) => {
                 try {
                     await withLoading(async () => {
+                        const updatePayload = { seller_paid: true, payout_released_at: new Date().toISOString() };
+                        if (needsVerificationOverride) updatePayload.payout_verification_override_reason = reason;
                         const { error } = await supabaseClient
                             .from('orders')
-                            .update({ seller_paid: true, payout_released_at: new Date().toISOString() })
+                            .update(updatePayload)
                             .eq('id', orderDbId)
                             .eq('seller_paid', false); // idempotency guard, same pattern as elsewhere
                         if (error) throw error;
@@ -4010,7 +4034,8 @@ async function releaseMarketplacePayout(orderDbId) {
 
                     await logAdminAction('release_marketplace_payout', 'order', orderDbId, order.listings?.brand, {
                         seller: order.listings?.seller_name,
-                        amount: order.listings?.seller_payout_amount
+                        amount: order.listings?.seller_payout_amount,
+                        ...(needsVerificationOverride ? { verification_override_reason: reason } : {})
                     });
 
                     if (order.listings?.seller_id) {
@@ -6549,17 +6574,39 @@ async function markSubmissionPaid(submissionDbId) {
         }
     }
 
+    // Payout verification gate: unverified sellers can still list/sell, but
+    // the DB (enforce_submission_payout_hold()) blocks marking-as-paid until
+    // profiles.verification_status = 'verified'. This lookup only decides
+    // whether to prompt for an override reason up front -- the real gate is
+    // in the trigger.
+    let needsVerificationOverride = false;
+    if (sub?.seller_id) {
+        const { data: sellerProfile } = await supabaseClient.from('profiles').select('verification_status').eq('id', sub.seller_id).single();
+        needsVerificationOverride = sellerProfile?.verification_status !== 'verified';
+    }
+    const verificationNote = needsVerificationOverride
+        ? ' This seller is not verified -- confirming requires an override reason, which is logged.'
+        : '';
+
     showConfirmModal({
         title: 'Mark as Paid',
-        message: `Confirm ${sub ? formatCurrency(sub.offer_amount) : ''} has been paid to ${sub?.seller_name || 'this seller'} for ${sub?.brand || ''} #${sub?.public_id || ''}?`,
-        confirmLabel: 'Confirm Paid',
-        onConfirm: async () => {
+        message: `Confirm ${sub ? formatCurrency(sub.offer_amount) : ''} has been paid to ${sub?.seller_name || 'this seller'} for ${sub?.brand || ''} #${sub?.public_id || ''}?${verificationNote}`,
+        confirmLabel: needsVerificationOverride ? 'Override & Confirm Paid' : 'Confirm Paid',
+        requireReason: needsVerificationOverride,
+        reasonLabel: 'Reason for paying an unverified seller',
+        onConfirm: async (reason) => {
             try {
                 await withLoading(async () => {
-                    const { error } = await supabaseClient.from('submissions').update({ paid_at: new Date().toISOString() }).eq('id', submissionDbId).is('paid_at', null);
+                    const updatePayload = { paid_at: new Date().toISOString() };
+                    if (needsVerificationOverride) updatePayload.payout_verification_override_reason = reason;
+                    const { error } = await supabaseClient.from('submissions').update(updatePayload).eq('id', submissionDbId).is('paid_at', null);
                     if (error) throw error;
                 });
-                await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, { seller: sub?.seller_name, amount: sub?.offer_amount });
+                await logAdminAction('mark_paid', 'submission', submissionDbId, sub?.brand, {
+                    seller: sub?.seller_name,
+                    amount: sub?.offer_amount,
+                    ...(needsVerificationOverride ? { verification_override_reason: reason } : {})
+                });
                 await notifyBoth('payout_marked_paid', submissionDbId);
                 showToast('success', 'Marked as paid.');
                 renderAdmin();
