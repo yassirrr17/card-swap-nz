@@ -921,6 +921,7 @@ async function handleSignup() {
             if (data.session?.user) {
                 AppState.currentUser = await fetchProfile(data.session.user.id);
                 updateNavForUser();
+                recordSessionIp('signup', data.session.access_token);
                 showToast('success', 'Account created successfully!');
                 if (consumeSellerSubmissionRedirect()) {
                     await router('seller-dashboard');
@@ -972,6 +973,7 @@ async function handleLogin() {
 
             AppState.currentUser = await fetchProfile(data.user.id);
             updateNavForUser();
+            recordSessionIp('login', data.session?.access_token);
             if (consumeSellerSubmissionRedirect()) {
                 await router('seller-dashboard');
                 showSellerTab('submit');
@@ -6430,6 +6432,28 @@ async function notifySeller(eventType, entityId) {
     } catch (error) {
         console.error('notifySeller failed:', error);
         showToast('warning', 'Could not email the seller about this outcome.');
+    }
+}
+
+/**
+ * Capture-only signal for future linked-account detection (no
+ * matching/detection logic here) -- records one row in account_ip_events
+ * per signup/login. Fire-and-forget: this must never surface an error to
+ * the user or block a signup/login that already succeeded, so failures are
+ * silently logged to the console only, unlike notifyAdmin/notifySeller
+ * above which do surface a toast (a missed notification is user-relevant;
+ * a missed IP capture isn't).
+ */
+async function recordSessionIp(eventType, accessToken) {
+    if (!accessToken) return;
+    try {
+        await fetch('/api/record-session-ip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ eventType })
+        });
+    } catch (error) {
+        console.error('recordSessionIp failed:', error);
     }
 }
 
