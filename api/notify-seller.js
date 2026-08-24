@@ -31,48 +31,60 @@ module.exports = async function handler(req, res) {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) {
+        console.error('notify-seller 401: no Bearer token on request.');
         return res.status(401).json({ error: 'Missing authentication token.' });
     }
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey);
     const { data: userData, error: userError } = await supabaseAuth.auth.getUser(token);
     if (userError || !userData?.user) {
+        console.error('notify-seller 401: token did not resolve to a user.', userError?.message || 'no user on response');
         return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
     }
     const callerId = userData.user.id;
 
     const { eventType, entityId } = req.body || {};
     if (typeof eventType !== 'string' || !eventType.trim()) {
+        console.error('notify-seller 400: eventType missing from request body.', JSON.stringify(req.body));
         return res.status(400).json({ error: 'eventType is required.' });
     }
     if (typeof entityId !== 'string' || !entityId.trim()) {
+        console.error(`notify-seller 400: entityId missing from request body for eventType=${eventType}.`, JSON.stringify(req.body));
         return res.status(400).json({ error: 'entityId is required.' });
     }
 
     const eventDef = EVENTS[eventType]?.seller;
     if (!eventDef) {
+        console.error(`notify-seller 400: no seller-half event definition for eventType=${eventType}.`);
         return res.status(400).json({ error: `Unknown or unsupported eventType: ${eventType}` });
     }
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
     const isCallerAdmin = async () => {
-        const { data: profile } = await supabaseAdmin.from('profiles').select('role').eq('id', callerId).single();
+        const { data: profile, error: profileError } = await supabaseAdmin.from('profiles').select('role').eq('id', callerId).single();
+        if (profileError) {
+            console.error(`notify-seller: profile lookup failed for callerId=${callerId}.`, profileError.message);
+        }
         return profile?.role === 'admin';
     };
 
     const ctx = await EVENTS[eventType].fetch(supabaseAdmin, entityId);
     if (!ctx) {
+        console.error(`notify-seller 404: fetch() returned no context for eventType=${eventType} entityId=${entityId}.`);
         return res.status(404).json({ error: 'This item could not be found.' });
     }
 
     const admin = await isCallerAdmin();
     if (!eventDef.authorize(ctx, callerId, admin)) {
+        console.error(
+            `notify-seller 403: authorize() rejected callerId=${callerId} (isAdmin=${admin}) for eventType=${eventType} entityId=${entityId}, ctx.seller_id=${ctx.seller_id}, ctx.buyer_id=${ctx.buyer_id}.`
+        );
         return res.status(403).json({ error: "You aren't authorized to trigger this notification." });
     }
 
     const recipientEmail = eventDef.recipientEmail(ctx);
     if (!recipientEmail) {
-        console.error(`No recipient email resolved for eventType=${eventType} entityId=${entityId}.`);
+        console.error(`notify-seller 400: no recipient email resolved for eventType=${eventType} entityId=${entityId}.`);
         return res.status(400).json({ error: 'Could not resolve a recipient for this notification.' });
     }
 
@@ -82,6 +94,9 @@ module.exports = async function handler(req, res) {
     // every_event for now rather than silently dropping notifications.
     const payoutOnlyEvents = ['payout_marked_paid', 'marketplace_payout_released'];
     if (eventDef.recipientPreference?.(ctx) === 'payout_only' && !payoutOnlyEvents.includes(eventType)) {
+        console.error(
+            `notify-seller 200 skipped: recipientPreference=payout_only for eventType=${eventType} entityId=${entityId}, recipient=${recipientEmail}.`
+        );
         return res.status(200).json({ success: true, skipped: true, reason: 'recipient notification preference is payout_only' });
     }
 
