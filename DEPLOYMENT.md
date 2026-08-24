@@ -28,6 +28,7 @@ grepping every `process.env.*` reference actually used in the codebase.
 | `EMAIL_FROM` | No — falls back to `Giftlio <onboarding@resend.dev>` | Set once you've verified a domain (see section 5) | Every function that sends email |
 | `ADMIN_NOTIFY_EMAIL` | No — falls back to `giftlio.co.nz@gmail.com` | Your own inbox | `send-notification.js`, `webhook.js` |
 | `CONTACT_FORM_TO` | No — falls back to `support@giftlio.co.nz` | Wherever contact form submissions should land | `contact-form.js` |
+| `LINKED_ACCOUNT_HASH_PEPPER` | Yes | Generate one yourself: `openssl rand -hex 32` | `record-session-ip.js` — **without this, the endpoint fails closed with a 500 on every signup and login** (harmless to the user, since it's called fire-and-forget, but the linked-account-detection feature silently records nothing). There's no fallback on purpose: an unpepper'd or later-changed hash would silently break correlation between rows recorded before and after the change, so a missing pepper is treated as a hard configuration error rather than skipped. Set it once at first deploy and never change it afterward. |
 
 `NEXT_PUBLIC_SUPABASE_URL` also works as an alternate name for `SUPABASE_URL` (some of the functions check both) — you only need to set one of the two.
 
@@ -37,7 +38,7 @@ grepping every `process.env.*` reference actually used in the codebase.
 2. Run every file in `supabase/migrations/` **in filename order** (they're timestamped, so sorting alphabetically is sorting chronologically). Either paste each one into the SQL Editor, or use the Supabase CLI if you have it.
 3. Confirm the `receipts` storage bucket exists (created by the `20260803000000_receipt_storage.sql` migration) — Supabase → Storage, should show as **private**, 5MB limit, JPG/PNG/PDF only.
 4. Confirm Realtime is enabled on `brand_discounts` (from `20260801030000_enable_brand_discounts_realtime.sql`) — Supabase → Database → Replication, `brand_discounts` should be listed.
-5. Manually promote your own account to admin after you sign up through the app once: `update public.profiles set role = 'admin' where email = 'your-email@example.com';`
+5. Manually promote your own account to admin after you sign up through the app once: `update public.profiles set role = 'admin' where email = 'your-email@example.com';` — run this in the Supabase SQL Editor (or via any direct/service-role connection), not through the app. It only works from there: `public.profiles` has a trigger, `prevent_self_privilege_escalation`, that guards `role` (and a few other sensitive columns) against a logged-in user changing them on their own row via the REST API. Since `20260824131128_fix_admin_bootstrap_trigger_scope.sql`, that guard is scoped to just the `authenticated` Postgres role PostgREST uses for real user sessions, so direct SQL access (this step, and any later admin promotion) bypasses it correctly. On an older migration set without that fix, this UPDATE silently no-ops — it looks like it succeeds but `role` reverts immediately, because the trigger's `is_admin()` check has no session to evaluate on a fresh project with zero existing admins.
 
 ## 4. Stripe setup
 
