@@ -150,7 +150,7 @@ async function loadPricingConfig() {
     const { data, error } = await supabaseClient
         .from('pricing_config')
         .select(
-            'marketplace_commission_rate, min_card_balance, min_listing_price, dispute_claim_window_hours, payout_hold_buffer_hours, instant_sell_payout_hold_hours, chargeback_review_threshold_amount'
+            'marketplace_commission_rate, min_card_balance, min_listing_price, dispute_claim_window_hours, payout_hold_buffer_hours, instant_sell_payout_hold_hours, chargeback_review_threshold_amount, min_expiry_window_days'
         )
         .eq('id', 1)
         .maybeSingle();
@@ -167,6 +167,7 @@ async function loadPricingConfig() {
         payoutHoldBufferHours: Number(data.payout_hold_buffer_hours),
         marketplacePayoutHoldHours: Number(data.dispute_claim_window_hours) + Number(data.payout_hold_buffer_hours),
         instantSellPayoutHoldHours: Number(data.instant_sell_payout_hold_hours),
+        minExpiryWindowDays: Number(data.min_expiry_window_days),
         chargebackReviewThresholdAmount: Number(data.chargeback_review_threshold_amount)
     };
     return AppState.pricingConfig;
@@ -1749,6 +1750,7 @@ async function viewListing(id, options = {}) {
                     <div class="detail-section">
                         <h3>Description</h3>
                         <p>This ${safeBrand} gift card was reviewed and approved by a Giftlio admin before being listed. Card details will be delivered via email within 24 hours of purchase.</p>
+                        <p><strong>Expiry:</strong> ${listing.expiry ? new Date(listing.expiry).toLocaleDateString('en-NZ') : 'No expiry'}</p>
                     </div>
                     <div class="detail-section trust-icon-row">
                         <div class="trust-icon-item">
@@ -2635,7 +2637,8 @@ async function handleSubmission() {
     const balanceRaw = document.getElementById('subBalance').value;
     const value = Number(valueRaw);
     const balance = Number(balanceRaw);
-    const expiry = document.getElementById('subExpiry').value;
+    const noExpiry = document.getElementById('subNoExpiry').checked;
+    const expiry = noExpiry ? '' : document.getElementById('subExpiry').value;
     const cardNum = document.getElementById('subCardNum').value;
     const pin = document.getElementById('subPin').value;
     const terms = document.getElementById('subTerms').checked;
@@ -2776,16 +2779,19 @@ async function handleSubmission() {
             }
         }
     }
-    if (!expiry) {
-        setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date');
-        hasError = true;
-    } else {
-        const expiryDate = new Date(expiry);
-        const sixtyDaysFromNow = new Date();
-        sixtyDaysFromNow.setDate(sixtyDaysFromNow.getDate() + 60);
-        if (expiryDate < sixtyDaysFromNow) {
-            setFieldError('subExpiry', 'subExpiryError', 'Cards must be valid for at least 60 days.');
+    if (!noExpiry) {
+        if (!expiry) {
+            setFieldError('subExpiry', 'subExpiryError', 'Enter the card\'s expiry date, or check "no expiry date"');
             hasError = true;
+        } else {
+            const expiryDate = new Date(expiry);
+            const minExpiryWindowDays = AppState.pricingConfig?.minExpiryWindowDays ?? 60;
+            const minExpiryFromNow = new Date();
+            minExpiryFromNow.setDate(minExpiryFromNow.getDate() + minExpiryWindowDays);
+            if (expiryDate < minExpiryFromNow) {
+                setFieldError('subExpiry', 'subExpiryError', `Cards must be valid for at least ${minExpiryWindowDays} days.`);
+                hasError = true;
+            }
         }
     }
     const issueDate = document.getElementById('subIssueDate').value;
@@ -2896,7 +2902,7 @@ async function handleSubmission() {
                     brand,
                     face_value: value,
                     current_balance: balance,
-                    expiry_date: expiry,
+                    expiry_date: expiry || null,
                     issue_date: issueDate || null,
                     card_number: cardNum,
                     pin: pin || null,
@@ -4508,7 +4514,7 @@ function renderInstantPendingTable(freshData) {
                         <td data-label="Value">${formatCurrency(s.faceValue)}</td>
                         <td data-label="Balance">${formatCurrency(s.currentBalance)}${renderSubmissionBalanceCheckBadge(s.dbId)}</td>
                         <td data-label="Calculated Offer"><strong>${formatCurrency(s.offerAmount)}</strong></td>
-                        <td data-label="Expiry">${s.expiryDate}</td>
+                        <td data-label="Expiry">${s.expiryDate || 'No expiry'}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Actions">
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Approve</button>
@@ -4585,7 +4591,7 @@ function renderMarketplacePendingTable(freshData) {
                         <td data-label="Brand">${escapeHtml(s.brand)}</td>
                         <td data-label="Balance">${formatCurrency(s.currentBalance)}${renderSubmissionBalanceCheckBadge(s.dbId)}</td>
                         <td data-label="Seller's Price"><strong>${s.sellerSetPrice != null ? formatCurrency(s.sellerSetPrice) : '—'}</strong></td>
-                        <td data-label="Expiry">${s.expiryDate}</td>
+                        <td data-label="Expiry">${s.expiryDate || 'No expiry'}</td>
                         <td data-label="Date">${new Date(s.createdAt).toLocaleDateString('en-NZ')}</td>
                         <td data-label="Actions">
                             <button class="btn btn-primary btn-sm" onclick="approveSubmissionGuarded(this, '${s.dbId}')">Verify &amp; List</button>
@@ -5699,6 +5705,16 @@ function closeBrandingModal() {
     currentBrandingEditTarget = null;
     document.getElementById('brandingOverlay').classList.add('hidden');
     document.getElementById('brandingModal').classList.add('hidden');
+}
+
+function toggleNoExpiry() {
+    const noExpiry = document.getElementById('subNoExpiry').checked;
+    const input = document.getElementById('subExpiry');
+    input.disabled = noExpiry;
+    if (noExpiry) {
+        input.value = '';
+        document.getElementById('subExpiryError').textContent = '';
+    }
 }
 
 function toggleSplitColorInput() {

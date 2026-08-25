@@ -87,7 +87,7 @@ const EVENTS = {
             body: (ctx, req) => `<p><strong>Retailer:</strong> ${escapeHtml(ctx.brand)}</p>
                  <p><strong>Original Value:</strong> ${money(ctx.face_value)}</p>
                  <p><strong>Current Balance:</strong> ${money(ctx.current_balance)}</p>
-                 <p><strong>Expiry:</strong> ${escapeHtml(ctx.expiry_date)}</p>
+                 <p><strong>Expiry:</strong> ${ctx.expiry_date ? escapeHtml(ctx.expiry_date) : 'No expiry'}</p>
                  <p><strong>Sale Mode:</strong> ${escapeHtml(ctx.sale_mode)}${ctx.sale_mode === 'marketplace' ? ` (seller asking price: ${money(ctx.seller_set_price)})` : ''}</p>
                  <p><strong>Calculated Offer:</strong> ${money(ctx.offer_amount)}</p>
                  <p><strong>Seller:</strong> ${escapeHtml(ctx.seller_name)} (${escapeHtml(ctx.seller_email)})</p>

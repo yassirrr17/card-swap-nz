@@ -220,7 +220,7 @@ module.exports = async function handler(req, res) {
                     <p><strong>Card Number:</strong> ${escapeHtml(decryptedCardNumber)}</p>
                     ${decryptedPin ? `<p><strong>PIN:</strong> ${escapeHtml(decryptedPin)}</p>` : ''}
                     <p><strong>Value:</strong> $${Number(card.current_balance).toFixed(2)}</p>
-                    <p><strong>Expiry:</strong> ${escapeHtml(card.expiry_date)}</p>
+                    <p><strong>Expiry:</strong> ${card.expiry_date ? escapeHtml(card.expiry_date) : 'No expiry'}</p>
                 </div>
                 <p style="text-align:center; margin: 24px 0;">
                     <a href="${balanceCheckUrl}" style="display:inline-block; background:#10142E; color:#ffffff; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Verify Your Balance</a>
