@@ -1581,7 +1581,7 @@ async function renderOfferPanel(listing) {
         if (error) throw error;
 
         const minOffer = listing.salePrice * (1 - OFFER_RANGE_PCT);
-        const maxOffer = listing.salePrice * (1 + OFFER_RANGE_PCT);
+        const maxOffer = Math.min(listing.salePrice * (1 + OFFER_RANGE_PCT), listing.faceValue);
 
         if (!existing || ['rejected', 'expired', 'withdrawn'].includes(existing.status)) {
             panel.innerHTML = `
@@ -3142,7 +3142,7 @@ async function renderSellerOffers() {
     try {
         const { data, error } = await supabaseClient
             .from('listing_offers')
-            .select('*, listings(brand, sale_price)')
+            .select('*, listings(brand, sale_price, face_value)')
             .eq('seller_id', AppState.currentUser.id)
             .order('created_at', { ascending: false });
 
@@ -3184,7 +3184,7 @@ async function renderSellerOffers() {
                                            <button class="btn btn-outline btn-sm" onclick="showCounterInput('${o.id}')">Counter</button>
                                            <div class="hidden" id="counterBox-${o.id}" style="margin-top:6px; display:flex; gap:6px;">
                                                <input type="number" id="counterInput-${o.id}" style="width:90px; padding:6px;" step="0.01">
-                                               <button class="btn btn-primary btn-sm" onclick="sendCounter('${o.id}', ${o.original_price})">Send</button>
+                                               <button class="btn btn-primary btn-sm" onclick="sendCounter('${o.id}', ${o.original_price}, ${o.listings?.face_value})">Send</button>
                                            </div>`
                                         : '<span style="color: var(--gray-400); font-size: 12px;">—</span>'
                                 }
@@ -3226,11 +3226,11 @@ async function respondToOffer(offerId, action) {
     }
 }
 
-async function sendCounter(offerId, originalPrice) {
+async function sendCounter(offerId, originalPrice, faceValue) {
     const input = document.getElementById(`counterInput-${offerId}`);
     const amount = Number(input.value);
     const min = originalPrice * (1 - OFFER_RANGE_PCT);
-    const max = originalPrice * (1 + OFFER_RANGE_PCT);
+    const max = Math.min(originalPrice * (1 + OFFER_RANGE_PCT), faceValue);
 
     if (!input.value || Number.isNaN(amount) || amount < min || amount > max) {
         showToast('warning', `Counter must be between ${formatCurrency(min)} and ${formatCurrency(max)}.`);
