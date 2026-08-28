@@ -45,7 +45,9 @@
     --shadow: 0 2px 8px rgba(0,0,0,0.08);
     --shadow-md: 0 4px 16px rgba(0,0,0,0.1);
     --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
-    --transition: all 0.2s ease;
+    /* ease-out-expo: fast start, gentle settle -- reads as a direct
+       response to the tap/click rather than a decorative animation. */
+    --transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
@@ -125,6 +127,10 @@ a {
 
 h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
+    /* Slightly tightened tracking on headings only -- Apple's large-title
+       type reads tighter than body copy; body paragraphs keep normal
+       tracking so they stay comfortable to read. */
+    letter-spacing: -0.01em;
 }
 
 a:hover {
@@ -138,7 +144,12 @@ a:hover {
 
 /* ===== NAVIGATION ===== */
 .navbar {
-    background: var(--navy);
+    /* rgba equivalent of --navy (16,20,46), translucent so the blur below
+       can act on it; the alpha is high enough that navbar text/logo stay
+       legible even where backdrop-filter isn't supported. */
+    background: rgba(16,20,46,0.85);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
     color: var(--white);
     position: fixed;
     top: 0;
@@ -146,6 +157,7 @@ a:hover {
     right: 0;
     z-index: 1000;
     box-shadow: var(--shadow-md);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
     padding-top: var(--safe-top);
 }
 
@@ -205,8 +217,13 @@ a:hover {
     left: 0;
     right: 0;
     max-width: 100vw;
-    background: var(--white);
-    border-top: 1px solid var(--gray-200);
+    /* Same glass treatment as .navbar, translated to the light surface:
+       translucent white + blur so the tab bar reads as floating chrome
+       above the scrolling content instead of a solid footer. */
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: 1px solid rgba(232,234,237,0.7);
     padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
     z-index: 900;
     /* Hard structural guarantee, not just "should fit": even if a label
@@ -416,12 +433,15 @@ a:hover {
 .btn-gold {
     background: var(--gold);
     color: var(--navy-dark);
-    box-shadow: 0 4px 14px rgba(217,178,76,0.35);
+    /* rgba equivalent of --gold (10,122,82) -- was still the pre-rebrand
+       amber tint (217,178,76), which no longer matches the emerald --gold
+       value and showed as a mismatched glow around the button. */
+    box-shadow: 0 4px 14px rgba(10,122,82,0.35);
 }
 
 .btn-gold:hover {
     background: var(--gold-dark);
-    box-shadow: 0 6px 18px rgba(217,178,76,0.45);
+    box-shadow: 0 6px 18px rgba(10,122,82,0.45);
     transform: translateY(-2px);
 }
 
@@ -478,6 +498,15 @@ td[data-label="Action"] .btn + .btn {
     background: var(--gray-100);
     color: var(--gray-700);
     margin-bottom: 24px;
+}
+
+/* Press feedback: buttons settle back down and compress slightly on
+   press, confirming the tap the way a physical control would, then
+   return via var(--transition) on release. Placed after every .btn-*
+   hover rule so it wins the cascade (equal specificity, later wins) and
+   the press effect always shows even while a button is also :hover-ed. */
+.btn:active {
+    transform: translateY(0) scale(0.97);
 }
 
 .btn-back:hover {
@@ -1479,6 +1508,11 @@ tr:hover td {
     right: 0;
     bottom: 0;
     background: rgba(0,0,0,0.5);
+    /* Softens the page content behind the sheet instead of just dimming
+       it flat -- the scrim alone already gives full contrast, so this is
+       a light touch, not something the modal depends on for legibility. */
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     z-index: 2000;
 }
 
