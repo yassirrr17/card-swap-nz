@@ -192,7 +192,9 @@ a:hover {
     width: 28px;
     height: 28px;
     background: var(--navy-dark);
-    border: 1px solid rgba(217,178,76,0.3);
+    /* rgba equivalent of --gold (10,122,82) -- see the .btn-gold comment
+       above; this was still the pre-rebrand amber. */
+    border: 1px solid rgba(10,122,82,0.3);
     border-radius: var(--radius);
     display: flex;
     align-items: center;
@@ -622,7 +624,8 @@ td[data-label="Action"] .btn + .btn {
 .hero-badge {
     display: inline-flex;
     align-items: center;
-    background: rgba(217,178,76,0.14);
+    /* rgba equivalent of --gold (10,122,82) -- pre-rebrand amber tint. */
+    background: rgba(10,122,82,0.14);
     color: var(--gold);
     font-size: 13px;
     font-weight: 600;
@@ -880,7 +883,8 @@ td[data-label="Action"] .btn + .btn {
     gap: 24px;
     flex-wrap: wrap;
     box-shadow: var(--shadow-md);
-    border: 1px solid rgba(217,178,76,0.15);
+    /* rgba equivalent of --gold (10,122,82) -- pre-rebrand amber tint. */
+    border: 1px solid rgba(10,122,82,0.15);
 }
 
 .sell-callout-text h2 {
@@ -1169,7 +1173,9 @@ td[data-label="Action"] .btn + .btn {
 
 .form-group input.field-error:focus,
 .form-group select.field-error:focus {
-    box-shadow: 0 0 0 3px rgba(211,47,47,0.12);
+    /* rgba equivalent of --red (196,56,44) -- was a shade that didn't
+       match the --red token used for the border right above it. */
+    box-shadow: 0 0 0 3px rgba(196,56,44,0.12);
 }
 
 .password-hint {
@@ -2054,7 +2060,10 @@ tr:hover td {
 .global-loading {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.35);
+    /* rgba equivalent of --navy, matching the scrim color used elsewhere
+       (.modal-overlay uses pure black instead since it needs to work over
+       arbitrary page content, but this loader sits above the whole app). */
+    background: rgba(16,20,46,0.35);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2270,7 +2279,7 @@ tr:hover td {
 /* ===== WHY IS THIS SAFE ACCORDION ===== */
 .safe-section { max-width: 720px; margin: 0 auto; }
 .safe-accordion { display: flex; flex-direction: column; gap: 10px; }
-.safe-item { border: 1px solid var(--gray-200); border-radius: 12px; overflow: hidden; }
+.safe-item { border: 1px solid var(--gray-200); border-radius: var(--radius-lg); overflow: hidden; }
 .safe-q {
     width: 100%;
     display: flex;
@@ -2316,7 +2325,7 @@ tr:hover td {
 .submission-card {
     background: var(--white);
     border: 1px solid var(--gray-200);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     padding: 18px 20px;
 }
 .submission-card-head {
@@ -2416,7 +2425,7 @@ tr:hover td {
     background: linear-gradient(90deg, var(--gray-100) 25%, var(--gray-50) 37%, var(--gray-100) 63%);
     background-size: 400% 100%;
     animation: skel-shimmer 1.4s ease infinite;
-    border-radius: 6px;
+    border-radius: var(--radius);
 }
 
 @keyframes skel-shimmer {
@@ -2437,7 +2446,7 @@ tr:hover td {
 .delivery-preview {
     background: var(--gray-50);
     border: 1px solid var(--gray-200);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     max-width: 360px;
 }
@@ -2592,7 +2601,7 @@ tr:hover td {
     gap: 8px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     padding: 8px 12px;
     max-width: 220px;
     flex: 1;
@@ -2673,7 +2682,7 @@ tr:hover td {
     font-size: 11px;
     font-weight: 700;
     padding: 4px 9px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
 }
 
 .cat-verify.instant {
@@ -2760,7 +2769,7 @@ tr:hover td {
     font-size: 10.5px;
     font-weight: 700;
     padding: 4px 9px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     white-space: nowrap;
     cursor: default;
     background: rgba(31,77,58,0.1);
@@ -2819,7 +2828,7 @@ tr:hover td {
     font-weight: 500;
     line-height: 1.5;
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
     z-index: 20;
     white-space: normal;
@@ -3022,7 +3031,7 @@ tr:hover td {
     font-size: 10px;
     font-weight: 700;
     padding: 3px 8px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     margin-left: 8px;
     vertical-align: middle;
 }
@@ -3051,7 +3060,7 @@ tr:hover td {
     font-size: 10px;
     font-weight: 700;
     padding: 3px 8px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     margin-left: 8px;
     white-space: nowrap;
 }
@@ -3211,7 +3220,7 @@ tr:hover td {
     font-size: 10.5px;
     font-weight: 700;
     padding: 4px 10px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     white-space: nowrap;
 }
 
@@ -3418,7 +3427,7 @@ tr:hover td {
     font-size: 10.5px;
     font-weight: 700;
     padding: 2px 7px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     flex-shrink: 0;
 }
 
@@ -3541,7 +3550,7 @@ tr:hover td {
     font-size: 11.5px;
     font-weight: 700;
     color: var(--gray-600);
-    border-radius: 6px;
+    border-radius: var(--radius);
     cursor: pointer;
     font-family: inherit;
 }
@@ -3610,13 +3619,13 @@ tr:hover td {
     flex: 1;
     height: 10px;
     background: var(--gray-100);
-    border-radius: 6px;
+    border-radius: var(--radius);
     overflow: hidden;
 }
 
 .status-bar-fill {
     height: 100%;
-    border-radius: 6px;
+    border-radius: var(--radius);
     transition: width 0.3s ease;
 }
 
@@ -3643,7 +3652,7 @@ tr:hover td {
     padding: 0 8px;
     border: 1px solid var(--gray-200);
     background: var(--white);
-    border-radius: 6px;
+    border-radius: var(--radius);
     font-size: 12.5px;
     font-weight: 600;
     color: var(--gray-700);
@@ -3805,7 +3814,7 @@ tr:hover td {
     justify-content: center;
     width: 26px;
     height: 26px;
-    border-radius: 6px;
+    border-radius: var(--radius);
     border: none;
     background: none;
     padding: 0;
